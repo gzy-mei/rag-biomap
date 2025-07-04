@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import requests
-import os
 
 def get_embedding(text, model='nomic-embed-text', server_url='http://localhost:11434/api/embeddings'):
     response = requests.post(server_url, json={
@@ -11,11 +10,12 @@ def get_embedding(text, model='nomic-embed-text', server_url='http://localhost:1
     response.raise_for_status()
     return response.json()['embedding']
 
-def vectorize_csv_column(csv_path, save_path_npy, column_index=2):
-    df = pd.read_csv(csv_path)
-    texts = df.iloc[1:, column_index].dropna().astype(str).tolist()  # 跳过第一行
-    embeddings = []
+def vectorize_header_terms(csv_path, save_path_npy):
+    # 读取 CSV（每行一个字段名）
+    df = pd.read_csv(csv_path, header=None)
+    texts = df.iloc[:, 0].dropna().astype(str).tolist()
 
+    embeddings = []
     for i, text in enumerate(texts):
         try:
             embedding = get_embedding(text)
@@ -28,6 +28,6 @@ def vectorize_csv_column(csv_path, save_path_npy, column_index=2):
     print(f"\n🎉 向量化完成！保存到：{save_path_npy}，共 {len(embeddings)} 条")
 
 if __name__ == "__main__":
-    csv_path = "/home/gzy/rag-biomap/data_description/标准术语合并结果.csv"
-    save_path_npy = "/home/gzy/rag-biomap/Build_an_index/standard_terms.npy"
-    vectorize_csv_column(csv_path, save_path_npy)
+    csv_path = "/home/gzy/rag-biomap/data_description/test/header_row.csv"
+    save_path_npy = "/home/gzy/rag-biomap/Build_an_index/test/header_terms.npy"
+    vectorize_header_terms(csv_path, save_path_npy)

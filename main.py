@@ -1,54 +1,51 @@
 import sys
-sys.path.append("/home/gzy/rag-biomap/2025_7_4")
+import os
+
+# 将新的模块路径添加到sys.path，方便import
+sys.path.extend([
+    "/home/gzy/rag-biomap/data_description",        # 你的data_description目录
+    "/home/gzy/rag-biomap/Build_an_index",          # Build_an_index目录
+])
+
 import pandas as pd
 import numpy as np
-import requests
 from sklearn.metrics.pairwise import cosine_similarity
 from data_description.invoke_Non_standard_data import extract_first_row_to_csv
-from data_des.data_des import extract_name_columns_from_excel
 from Build_an_index.invoke_Build_index import get_embedding, build_index_from_csv
-import os
-from typing import List, Dict
+from data_description.invoke_data_manipulaltion_basyxx import extract_name_columns_from_excel
 from openai import OpenAI
+from typing import List, Dict
 
+# 初始化OpenAI客户端
 client = OpenAI(
     base_url="http://172.16.55.171:7010/v1",
     api_key="sk-cairi"
 )
 
-
 # 配置参数
 CONFIG = {
-    # 文件路径
-    "non_standard_excel": "/home/gzy/rag-biomap/导出数据第1~1000条数据_病案首页-.xlsx",
-    "standard_excel": "/home/gzy/rag-biomap/VTE-PTE-CTEPH研究数据库.xlsx",
-    "header_csv": "/home/gzy/rag-biomap/data_description/header_row.csv",
-    "standard_terms_csv": "/home/gzy/rag-biomap/data_description/标准术语合并结果.csv",
-    "header_vectors": "/home/gzy/rag-biomap/Build_an_index/header_terms.npy",
-    "standard_vectors": "/home/gzy/rag-biomap/Build_an_index/standard_terms.npy",
-    "output_excel": "/home/gzy/rag-biomap/匹配结果对比.xlsx",
-
+    "non_standard_excel": "/home/gzy/rag-biomap/dataset/导出数据第1~1000条数据_病案首页-.xlsx",
+    "standard_excel": "/home/gzy/rag-biomap/dataset/VTE-PTE-CTEPH研究数据库.xlsx",
+    "header_csv": "/home/gzy/rag-biomap/data_description/test/header_row.csv",
+    "standard_terms_csv": "/home/gzy/rag-biomap/data_description/test/标准术语_病案首页.csv",
+    "header_vectors": "/home/gzy/rag-biomap/Build_an_index/test/header_terms.npy",
+    "standard_vectors": "/home/gzy/rag-biomap/Build_an_index/test/standard_terms.npy",
+    "output_excel": "/home/gzy/rag-biomap/dataset/匹配结果对比.xlsx",
 }
 
+# 后续函数保持不变，直接用你之前写的即可
 
 def initialize_directories():
-    """确保所有目录存在"""
     for path in [CONFIG["header_csv"], CONFIG["header_vectors"]]:
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
-
 def process_non_standard_data() -> List[str]:
-    """处理非标准数据并返回表头文本列表"""
     if not extract_first_row_to_csv(CONFIG["non_standard_excel"], CONFIG["header_csv"]):
         raise RuntimeError("非标准数据处理失败")
     build_index_from_csv(CONFIG["header_csv"], CONFIG["header_vectors"], column_index=0, verbose=False)
     return pd.read_csv(CONFIG["header_csv"], header=None)[0].tolist()
 
-
 def process_standard_data() -> List[str]:
-    """处理标准知识库数据并返回术语列表"""
-
-    # 调用新的函数，传入参数
     success = extract_name_columns_from_excel(
         CONFIG["standard_excel"],
         CONFIG["standard_terms_csv"],
@@ -59,28 +56,22 @@ def process_standard_data() -> List[str]:
         raise RuntimeError("标准术语提取失败")
 
     df = pd.read_csv(CONFIG["standard_terms_csv"])
-
-    # 确认必要列
     required_columns = ["sheet名称", "内容"]
     if not all(col in df.columns for col in required_columns):
         missing = [col for col in required_columns if col not in df.columns]
         raise ValueError(f"CSV文件缺少必要列: {missing}")
 
-    # 筛选sheet名称为“病案首页信息”的行
     target_sheet = "病案首页信息"
     df_filtered = df[df["sheet名称"] == target_sheet]
     if df_filtered.empty:
         raise ValueError(f"未找到工作表: {target_sheet}")
 
-    # 取“内容”列，去除空值，转字符串列表
     terms = df_filtered["内容"].dropna().astype(str).tolist()
 
-    # 保存新CSV文件到指定路径
-    new_csv_path = "/home/gzy/rag-biomap/data_description/病案首页信息_内容.csv"
+    new_csv_path = "/home/gzy/rag-biomap/data_description/test/病案首页信息_内容.csv"
     df_filtered[["内容"]].to_csv(new_csv_path, index=False, encoding='utf-8-sig')
     print(f"✅ 已保存筛选后内容到：{new_csv_path}，共 {len(terms)} 条")
 
-    # 生成向量文件
     build_index_from_csv(
         new_csv_path,
         CONFIG["standard_vectors"],
@@ -88,7 +79,6 @@ def process_standard_data() -> List[str]:
         verbose=False
     )
     return terms
-
 
 def generate_with_llm(prompt: str) -> str:
     try:
@@ -103,9 +93,7 @@ def generate_with_llm(prompt: str) -> str:
         print(f"⚠️ LLM调用失败：{e}")
         return "[默认回复]"
 
-
 def calculate_similarities() -> List[Dict]:
-    # 加载数据
     header_vectors = np.load(CONFIG["header_vectors"])
     standard_vectors = np.load(CONFIG["standard_vectors"])
     header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].tolist()
@@ -113,20 +101,18 @@ def calculate_similarities() -> List[Dict]:
 
     results = []
     for h_text, h_vec in zip(header_texts, header_vectors):
-        # 1. 计算余弦相似度
         sim_scores = cosine_similarity([h_vec], standard_vectors)[0]
-        top_3_indices = np.argsort(sim_scores)[-3:][::-1]  # 直接取相似度最高的3个
+        top_3_indices = np.argsort(sim_scores)[-3:][::-1]
         top_3 = [standard_texts[i] for i in top_3_indices]
         top_scores = [sim_scores[i] for i in top_3_indices]
 
-        # 2. LLM生成最终选择
         prompt = f"""请根据病历表头选择最匹配的标准术语：
 
-        原始表头：{h_text}
-        候选术语：
-        {chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
+原始表头：{h_text}
+候选术语：
+{chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
 
-        只需返回选择的编号(1-3)，不要解释。"""
+只需返回选择的编号(1-3)，不要解释。"""
 
         llm_choice = generate_with_llm(prompt)
         results.append({
@@ -138,18 +124,11 @@ def calculate_similarities() -> List[Dict]:
         })
     return results
 
-
 def save_results(results: List[Dict]):
-    """保存带有多维度评估的结果"""
     df = pd.DataFrame(results)
-    # 添加匹配成功标记
-    df['匹配成功'] = df.apply(
-        lambda x: x['LLM选择'] in x['候选术语'][0],
-        axis=1
-    )
+    df['匹配成功'] = df.apply(lambda x: x['LLM选择'] in x['候选术语'][0], axis=1)
     df.to_excel(CONFIG["output_excel"], index=False, engine='openpyxl')
     print(f"✅ 结果已保存到 {CONFIG['output_excel']}，共 {len(df)} 条记录")
-
 
 def main():
     initialize_directories()
@@ -164,7 +143,6 @@ def main():
 
     print("💾 保存结果...")
     save_results(results)
-
 
 if __name__ == "__main__":
     main()

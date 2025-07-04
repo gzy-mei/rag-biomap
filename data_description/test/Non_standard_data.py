@@ -1,7 +1,7 @@
 import pandas as pd
 
-input_excel = "/home/gzy/rag-biomap/导出数据第1~1000条数据_病案首页-.xlsx"
-output_csv = "/home/gzy/rag-biomap/data_description/header_row.csv"
+input_excel = "/home/gzy/rag-biomap/dataset/导出数据第1~1000条数据_病案首页-.xlsx"
+output_csv = "/home/gzy/rag-biomap/data_description/test/header_row.csv"
 
 try:
     # 读取不把第一行当表头，所有内容都当数据

@@ -5,8 +5,8 @@ import os
 
 
 def extract_name_columns_from_excel():
-    excel_path = "/home/gzy/rag-biomap/VTE-PTE-CTEPH研究数据库.xlsx"
-    output_csv = "/home/gzy/rag-biomap/data_description/标准术语合并结果.csv"
+    excel_path = "/home/gzy/rag-biomap/dataset/VTE-PTE-CTEPH研究数据库.xlsx"
+    output_csv = "/home/gzy/rag-biomap/data_description/test/标准术语合并结果.csv"
 
     data_list = []
 

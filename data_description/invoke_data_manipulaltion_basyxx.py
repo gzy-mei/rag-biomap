@@ -1,4 +1,3 @@
-# data_manipulation.py
 import pandas as pd
 import os
 
@@ -9,17 +8,7 @@ def extract_name_columns_from_excel(
     target_column: str = "名称"
 ) -> bool:
     """
-    从指定Excel文件的指定sheet和列提取数据，
-    并保存为CSV。
-
-    参数：
-    - excel_path: Excel文件路径
-    - output_csv: 输出CSV路径
-    - target_sheet: 目标sheet名称，默认"病案首页信息"
-    - target_column: 目标列名，默认"名称"
-
-    返回：
-    - 成功返回True，失败返回False
+    从指定Excel文件的指定sheet和列提取数据，保存为CSV。
     """
     data_list = []
 
@@ -47,3 +36,9 @@ def extract_name_columns_from_excel(
     result_df.to_csv(output_csv, index=False, encoding='utf-8-sig')
     print(f"✅ 已保存到 {output_csv}，共提取 {len(result_df)} 条记录。")
     return True
+
+
+if __name__ == "__main__":
+    excel_path = "/home/gzy/rag-biomap/dataset/VTE-PTE-CTEPH研究数据库.xlsx"
+    output_csv = "/home/gzy/rag-biomap/data_description/test/标准术语_病案首页.csv"
+    extract_name_columns_from_excel(excel_path, output_csv)

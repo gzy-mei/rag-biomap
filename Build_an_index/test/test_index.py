@@ -3,8 +3,8 @@ import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 
 # 1. 加载向量文件和原始文本
-embeddings = np.load("/home/gzy/rag-biomap/Build_an_index/standard_terms.npy")
-df = pd.read_csv("/home/gzy/rag-biomap/data_description/标准术语合并结果.csv")
+embeddings = np.load("/home/gzy/rag-biomap/Build_an_index/test/standard_terms.npy")
+df = pd.read_csv("/home/gzy/rag-biomap/data_description/test/标准术语合并结果.csv")
 texts = df.iloc[1:, 2].dropna().astype(str).tolist()  # 假设第3列是文本
 
 # 2. 检查数据是否对齐
