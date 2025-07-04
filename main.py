@@ -1,9 +1,11 @@
+import sys
+sys.path.append("/home/gzy/rag-biomap/2025_7_4")
 import pandas as pd
 import numpy as np
 import requests
 from sklearn.metrics.pairwise import cosine_similarity
 from data_description.invoke_Non_standard_data import extract_first_row_to_csv
-from data_description.invoke_data_manipulaltion import extract_name_columns_from_excel
+from data_des.data_des import extract_name_columns_from_excel
 from Build_an_index.invoke_Build_index import get_embedding, build_index_from_csv
 import os
 from typing import List, Dict
@@ -45,7 +47,16 @@ def process_non_standard_data() -> List[str]:
 
 def process_standard_data() -> List[str]:
     """处理标准知识库数据并返回术语列表"""
-    extract_name_columns_from_excel()  # 你已有的函数，生成标准术语合并结果.csv
+
+    # 调用新的函数，传入参数
+    success = extract_name_columns_from_excel(
+        CONFIG["standard_excel"],
+        CONFIG["standard_terms_csv"],
+        target_sheet="病案首页信息",
+        target_column="名称"
+    )
+    if not success:
+        raise RuntimeError("标准术语提取失败")
 
     df = pd.read_csv(CONFIG["standard_terms_csv"])
 
@@ -77,8 +88,6 @@ def process_standard_data() -> List[str]:
         verbose=False
     )
     return terms
-
-
 
 
 def generate_with_llm(prompt: str) -> str:

@@ -1,3 +1,4 @@
+# data_manipulation.py
 import pandas as pd
 import os
 
@@ -6,10 +7,22 @@ def extract_name_columns_from_excel(
     output_csv: str,
     target_sheet: str = "病案首页信息",
     target_column: str = "名称"
-):
+) -> bool:
+    """
+    从指定Excel文件的指定sheet和列提取数据，
+    并保存为CSV。
+
+    参数：
+    - excel_path: Excel文件路径
+    - output_csv: 输出CSV路径
+    - target_sheet: 目标sheet名称，默认"病案首页信息"
+    - target_column: 目标列名，默认"名称"
+
+    返回：
+    - 成功返回True，失败返回False
+    """
     data_list = []
 
-    # 读取指定 sheet
     try:
         df = pd.read_excel(excel_path, sheet_name=target_sheet)
 
@@ -29,17 +42,8 @@ def extract_name_columns_from_excel(
         print(f"错误：读取 Excel 时出错，原因：{e}")
         return False
 
-    # 确保输出目录存在
     os.makedirs(os.path.dirname(output_csv), exist_ok=True)
-
-    # 保存为 CSV
     result_df = pd.DataFrame(data_list)
     result_df.to_csv(output_csv, index=False, encoding='utf-8-sig')
     print(f"✅ 已保存到 {output_csv}，共提取 {len(result_df)} 条记录。")
     return True
-
-
-if __name__ == "__main__":
-    excel_path = "/home/gzy/rag-biomap/VTE-PTE-CTEPH研究数据库.xlsx"
-    output_csv = "/home/gzy/rag-biomap/2025_7_4/data_des/标准术语_病案首页.csv"
-    extract_name_columns_from_excel(excel_path, output_csv)
