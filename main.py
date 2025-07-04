@@ -16,6 +16,52 @@ from data_description.invoke_data_manipulaltion_basyxx import extract_name_colum
 from openai import OpenAI
 from typing import List, Dict
 
+
+
+
+def debug_data():
+    print("==== 调试开始 ====")
+
+    # 1. 查看标准术语CSV文件行数和sheet名称分布
+    df_standard = pd.read_csv("/home/gzy/rag-biomap/data_description/test/标准术语_病案首页.csv")
+    print(f"标准术语CSV总行数: {len(df_standard)}")
+    print("标准术语CSV中各sheet名称计数:")
+    print(df_standard["sheet名称"].value_counts())
+
+    # 2. 查看非标准数据CSV行数
+    df_header = pd.read_csv("/home/gzy/rag-biomap/data_description/test/header_row.csv", header=None)
+    print(f"非标准数据CSV总行数: {len(df_header)}")
+
+    # 3. 查看向量文件内容数量
+    try:
+        header_vectors = np.load("/home/gzy/rag-biomap/Build_an_index/test/header_terms.npy")
+        print(f"header_vectors数量: {header_vectors.shape[0]}")
+    except Exception as e:
+        print(f"读取header_vectors时出错: {e}")
+
+    try:
+        standard_vectors = np.load("/home/gzy/rag-biomap/Build_an_index/test/standard_terms.npy")
+        print(f"standard_vectors数量: {standard_vectors.shape[0]}")
+    except Exception as e:
+        print(f"读取standard_vectors时出错: {e}")
+
+    # 4. 计算相似度时打印异常LLM选择
+    header_texts = df_header[0].tolist()
+    standard_texts = df_standard["内容"].dropna().astype(str).tolist()
+
+    for h_text in header_texts:
+        # 这里简单打印，方便观察，真实调试中可放到相似度计算函数里
+        if not h_text or h_text.strip() == "":
+            print(f"异常表头文本为空: '{h_text}'")
+
+    print("==== 调试结束 ====")
+
+# 调用这个调试函数，放在main函数的开始或你想检查的位置
+if __name__ == "__main__":
+    debug_data()
+
+
+
 # 初始化OpenAI客户端
 client = OpenAI(
     base_url="http://172.16.55.171:7010/v1",
