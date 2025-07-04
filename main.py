@@ -45,36 +45,39 @@ def process_non_standard_data() -> List[str]:
 
 def process_standard_data() -> List[str]:
     """处理标准知识库数据并返回术语列表"""
-    extract_name_columns_from_excel()
+    extract_name_columns_from_excel()  # 你已有的函数，生成标准术语合并结果.csv
 
-    # 读取CSV并验证列名
     df = pd.read_csv(CONFIG["standard_terms_csv"])
+
+    # 确认必要列
     required_columns = ["sheet名称", "内容"]
     if not all(col in df.columns for col in required_columns):
         missing = [col for col in required_columns if col not in df.columns]
         raise ValueError(f"CSV文件缺少必要列: {missing}")
 
-    # 过滤特定sheet内容
+    # 筛选sheet名称为“病案首页信息”的行
     target_sheet = "病案首页信息"
-    df = df[df["sheet名称"] == target_sheet]
-    if df.empty:
+    df_filtered = df[df["sheet名称"] == target_sheet]
+    if df_filtered.empty:
         raise ValueError(f"未找到工作表: {target_sheet}")
 
-    # 提取第三部分内容
-    terms = df["内容"].dropna().astype(str).tolist()
+    # 取“内容”列，去除空值，转字符串列表
+    terms = df_filtered["内容"].dropna().astype(str).tolist()
 
-    # 保存临时文件
-    temp_csv = "/tmp/病案首页信息_第三部分.csv"
-    pd.DataFrame({"term": terms}).to_csv(temp_csv, index=False)
+    # 保存新CSV文件到指定路径
+    new_csv_path = "/home/gzy/rag-biomap/data_description/病案首页信息_内容.csv"
+    df_filtered[["内容"]].to_csv(new_csv_path, index=False, encoding='utf-8-sig')
+    print(f"✅ 已保存筛选后内容到：{new_csv_path}，共 {len(terms)} 条")
 
-    # 生成向量
+    # 生成向量文件
     build_index_from_csv(
-        temp_csv,
+        new_csv_path,
         CONFIG["standard_vectors"],
         column_index=0,
-        verbose=False  # 关闭详细输出
+        verbose=False
     )
     return terms
+
 
 
 
@@ -93,7 +96,6 @@ def generate_with_llm(prompt: str) -> str:
 
 
 def calculate_similarities() -> List[Dict]:
-    """简化后的RAG流程，去掉重排部分"""
     # 加载数据
     header_vectors = np.load(CONFIG["header_vectors"])
     standard_vectors = np.load(CONFIG["standard_vectors"])
