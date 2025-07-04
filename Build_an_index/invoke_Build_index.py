@@ -12,18 +12,20 @@ def get_embedding(text, model='nomic-embed-text', server_url='http://localhost:1
     response.raise_for_status()
     return response.json()['embedding']
 
-def build_index_from_csv(csv_path, save_path_npy, column_index=2):
+def build_index_from_csv(csv_path, save_path_npy, column_index=2, verbose=False):
     df = pd.read_csv(csv_path)
-    texts = df.iloc[1:, column_index].dropna().astype(str).tolist()  # 跳过第一行
+    texts = df.iloc[1:, column_index].dropna().astype(str).tolist()
     embeddings = []
 
     for i, text in enumerate(texts):
         try:
             embedding = get_embedding(text)
             embeddings.append(embedding)
-            print(f"[{i+1}/{len(texts)}] ✅ 成功嵌入：{text}")
+            if verbose and (i+1) % 50 == 0:  # 每50条打印一次进度
+                print(f"[{i+1}/{len(texts)}] 处理中...")
         except Exception as e:
-            print(f"[{i+1}] ❌ 嵌入失败：{text}，原因：{e}")
+            print(f"[{i+1}] ❌ 嵌入失败：{text[:20]}...，原因：{str(e)[:50]}...")
 
     np.save(save_path_npy, np.array(embeddings, dtype=np.float32))
-    print(f"\n🎉 向量化完成！保存到：{save_path_npy}，共 {len(embeddings)} 条")
+    if verbose:
+        print(f"\n🎉 向量化完成！共 {len(embeddings)} 条")
