@@ -16,7 +16,8 @@ from data_description.invoke_data_manipulaltion_basyxx import extract_name_colum
 from openai import OpenAI
 from typing import List, Dict
 from Build_an_index.invoke_Non_standard_data_Build_index import vectorize_header_terms
-
+from rank_bm25 import BM25Okapi
+import jieba
 
 
 def debug_data():
@@ -148,8 +149,10 @@ def generate_with_llm(prompt: str) -> str:
         print(f"⚠️ LLM调用失败：{e}")
         return "[默认回复]"
 
+
+"""余弦
 def calculate_similarities() -> List[Dict]:
-    header_vectors = np.load(CONFIG["header_vectors"])
+   header_vectors = np.load(CONFIG["header_vectors"])
     standard_vectors = np.load(CONFIG["standard_vectors"])
     header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].tolist()
     standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].tolist()
@@ -161,8 +164,24 @@ def calculate_similarities() -> List[Dict]:
         top_3 = [standard_texts[i] for i in top_3_indices]
         top_scores = [sim_scores[i] for i in top_3_indices]
 
-        prompt = f"""请根据病历表头选择最匹配的标准术语：
+        """
+#bm25
+def calculate_similarities() -> List[Dict]:
+    header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
+    standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].dropna().astype(str).tolist()
 
+    tokenized_corpus = [list(jieba.cut(text)) for text in standard_texts]
+    bm25 = BM25Okapi(tokenized_corpus)
+
+    results = []
+    for h_text in header_texts:
+        query = list(jieba.cut(h_text))
+        scores = bm25.get_scores(query)
+        top_3_indices = np.argsort(scores)[-3:][::-1]
+        top_3 = [standard_texts[i] for i in top_3_indices]
+        top_scores = [scores[i] for i in top_3_indices]
+
+        prompt = f"""请根据病历表头选择最匹配的标准术语：
 原始表头：{h_text}
 候选术语：
 {chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
