@@ -15,7 +15,7 @@ from Build_an_index.invoke_Build_index import get_embedding, build_index_from_cs
 from data_description.invoke_data_manipulaltion_basyxx import extract_name_columns_from_excel
 from openai import OpenAI
 from typing import List, Dict
-
+from Build_an_index.invoke_Non_standard_data_Build_index import vectorize_header_terms
 
 
 
@@ -86,9 +86,18 @@ def initialize_directories():
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
 def process_non_standard_data() -> List[str]:
+    # 先调用你的 extract_first_row_to_csv，确保 CSV 生成成功
     if not extract_first_row_to_csv(CONFIG["non_standard_excel"], CONFIG["header_csv"]):
         raise RuntimeError("非标准数据处理失败")
-    build_index_from_csv(CONFIG["header_csv"], CONFIG["header_vectors"], column_index=0, verbose=False)
+
+    # 调用封装好的向量化函数，替代原来的 build_index_from_csv 调用
+    vectorize_header_terms(
+        CONFIG["header_csv"],
+        CONFIG["header_vectors"],
+        failed_log_path="/home/gzy/rag-biomap/Build_an_index/test/header_terms_failed.csv"
+    )
+
+    # 返回所有文本列表
     return pd.read_csv(CONFIG["header_csv"], header=None)[0].tolist()
 
 def process_standard_data() -> List[str]:

@@ -1,51 +1,47 @@
 import pandas as pd
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
+import requests
+import os
 
-def find_most_similar_including_self(csv_path, embedding_path, output_path):
-    # 加载文本内容
+def get_embedding(text, model='nomic-embed-text', server_url='http://localhost:11434/api/embeddings'):
+    response = requests.post(server_url, json={
+        'model': model,
+        'prompt': text
+    })
+    response.raise_for_status()
+    return response.json()['embedding']
+
+def vectorize_header_terms(csv_path, save_path_npy, failed_log_path=None):
+    # 读取 CSV（每行一个字段名）
     df = pd.read_csv(csv_path, header=None)
-    texts = df.iloc[:, 0].dropna().astype(str).tolist()
+    texts = df.iloc[:, 0].astype(str).tolist()
 
-    # 加载向量
-    embeddings = np.load(embedding_path)
-    
+    embeddings = []
+    failed_texts = []
 
-    # 修正不一致问题：取最短的部分继续
-    min_len = min(len(texts), embeddings.shape[0])
-    if len(texts) != embeddings.shape[0]:
-        print(f"⚠️ 文本数量 {len(texts)} 与向量数量 {embeddings.shape[0]} 不一致，仅对前 {min_len} 条进行比较")
-
-    texts = texts[:min_len]
-    embeddings = embeddings[:min_len]
-
-
-    # 计算余弦相似度矩阵（包括自己）
-    sim_matrix = cosine_similarity(embeddings)
-
-    results = []
     for i, text in enumerate(texts):
-        sim_scores = sim_matrix[i]
-        max_idx = np.argmax(sim_scores)  # 包含自己时，最大通常是自己
+        try:
+            embedding = get_embedding(text)
+            embeddings.append(embedding)
+            print(f"[{i+1}/{len(texts)}] ✅ 嵌入成功：{text}")
+        except Exception as e:
+            print(f"[{i+1}] ❌ 嵌入失败：{text}，原因：{e}")
+            failed_texts.append({"index": i, "text": text, "error": str(e)})
 
-        max_text = texts[max_idx]
-        max_score = sim_scores[max_idx]
+    # 保存嵌入向量
+    np.save(save_path_npy, np.array(embeddings, dtype=np.float32))
+    print(f"\n🎉 嵌入完成，共成功嵌入 {len(embeddings)} 条，保存到：{save_path_npy}")
 
-        results.append({
-            "原文本": text,
-            "最相似文本": max_text,
-            "相似度": round(max_score, 6),
-            "是否相同": "是" if text == max_text else "否"
-        })
-
-    # 保存结果
-    result_df = pd.DataFrame(results)
-    result_df.to_csv(output_path, index=False, encoding='utf-8-sig')
-    print(f"✅ 已保存相似度比较结果到：{output_path}")
+    # 可选：保存失败的记录
+    if failed_log_path and failed_texts:
+        failed_df = pd.DataFrame(failed_texts)
+        os.makedirs(os.path.dirname(failed_log_path), exist_ok=True)
+        failed_df.to_csv(failed_log_path, index=False, encoding='utf-8-sig')
+        print(f"⚠️ 失败文本已保存到：{failed_log_path}")
 
 if __name__ == "__main__":
     csv_path = "/home/gzy/rag-biomap/data_description/test/header_row.csv"
-    embedding_path = "/home/gzy/rag-biomap/Build_an_index/test/header_terms.npy"
-    output_path = "/home/gzy/rag-biomap/data_description/test/header_similarity_including_self.csv"
+    save_path_npy = "/home/gzy/rag-biomap/Build_an_index/test/header_terms.npy"
+    failed_log_path = "/home/gzy/rag-biomap/Build_an_index/test/header_terms_failed.csv"
 
-    find_most_similar_including_self(csv_path, embedding_path, output_path)
+    vectorize_header_terms(csv_path, save_path_npy, failed_log_path)
