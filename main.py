@@ -7,6 +7,13 @@ from data_description.invoke_data_manipulaltion import extract_name_columns_from
 from Build_an_index.invoke_Build_index import get_embedding, build_index_from_csv
 import os
 from typing import List, Dict
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://172.16.55.171:7010/v1",
+    api_key="sk-cairi"
+)
+
 
 # 配置参数
 CONFIG = {
@@ -19,13 +26,6 @@ CONFIG = {
     "standard_vectors": "/home/gzy/rag-biomap/Build_an_index/standard_terms.npy",
     "output_excel": "/home/gzy/rag-biomap/匹配结果对比.xlsx",
 
-    # 模型配置
-    "embedding_model": "nomic-embed-text",  # 嵌入模型
-    "llm_api": {
-        "base_url": "http://172.16.55.171:7010/v1",
-        "api_key": "sk-cairi",
-        "model": "gpt-4"  # 假设使用的生成模型
-    }
 }
 
 
@@ -77,24 +77,19 @@ def process_standard_data() -> List[str]:
     return terms
 
 
+
 def generate_with_llm(prompt: str) -> str:
-    """调用LLM API生成最终答案"""
     try:
-        response = requests.post(
-            f"{CONFIG['llm_api']['base_url']}/chat/completions",
-            headers={"Authorization": f"Bearer {CONFIG['llm_api']['api_key']}"},
-            json={
-                "model": CONFIG["llm_api"]["model"],
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.1
-            },
-            timeout=30
+        response = client.chat.completions.create(
+            model="CAIRI-LLM",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=100
         )
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+        return response.choices[0].message.content.strip()
     except Exception as e:
-        print(f"⚠️ LLM生成失败: {str(e)}")
-        return "N/A"
+        print(f"⚠️ LLM调用失败：{e}")
+        return "[默认回复]"
 
 
 def calculate_similarities() -> List[Dict]:
