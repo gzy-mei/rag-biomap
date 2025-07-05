@@ -19,4 +19,6 @@ url =/root/.cache/modelscope/hub/models/ZhipuAI/chatglm3-6b
 /home/gzy/root/.cache/modelscope/hub/models/ZhipuAI/chatglm3-6b
 
 
+#run main.py
+python -m main
 
