@@ -34,7 +34,7 @@ def main():
         "文本2": [texts[1]],
         "相似度": [round(sim_matrix[0,1], 6)]
     })
-    df.to_csv("test_similarity/入院诊断编码、病理诊断编码_向量相似度对比.csv", index=False, encoding='utf-8-sig')
+    df.to_csv("test_similarity//cosine_similarity/入院诊断编码、病理诊断编码_向量相似度对比.csv", index=False, encoding='utf-8-sig')
     print("✅ 相似度结果已保存至 test_similarity/入院诊断编码、病理诊断编码_向量相似度对比.csv")
 
 
