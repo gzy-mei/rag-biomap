@@ -161,56 +161,20 @@ def detect_similarity_method(func):
         return func(*args, **kwargs)
     return wrapper
 
-#余弦
-@detect_similarity_method
-def calculate_similarities_cosine() -> List[Dict]:
-    header_vectors = np.load(CONFIG["header_vectors"])
-    standard_vectors = np.load(CONFIG["standard_vectors"])
-    header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].tolist()
-    standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].tolist()
-
-    results = []
-    for h_text, h_vec in zip(header_texts, header_vectors):
-        sim_scores = cosine_similarity([h_vec], standard_vectors)[0]
-        top_3_indices = np.argsort(sim_scores)[-3:][::-1]
-        top_3 = [standard_texts[i] for i in top_3_indices]
-        top_scores = [sim_scores[i] for i in top_3_indices]
-
-        prompt = f"""请根据病历表头选择最匹配的标准术语：
-原始表头：{h_text}
-候选术语：
-{chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
-
-只需返回选择的编号(1-3)，不要解释。"""
-
-        llm_choice = generate_with_llm(prompt)
-        results.append({
-            "原始表头": h_text,
-            "候选术语": top_3,
-            "LLM选择": top_3[int(llm_choice) - 1] if llm_choice.isdigit() else "N/A",
-            "最高相似度": top_scores[0],
-            "平均相似度": np.mean(top_scores)
-        })
-    return results
-
-
-
-# #bm25
+# #余弦
 # @detect_similarity_method
-# def calculate_similarities_bm25() -> List[Dict]:
-#     header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
-#     standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].dropna().astype(str).tolist()
-#
-#     tokenized_corpus = [list(jieba.cut(text)) for text in standard_texts]
-#     bm25 = BM25Okapi(tokenized_corpus)
+# def calculate_similarities_cosine() -> List[Dict]:
+#     header_vectors = np.load(CONFIG["header_vectors"])
+#     standard_vectors = np.load(CONFIG["standard_vectors"])
+#     header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].tolist()
+#     standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].tolist()
 #
 #     results = []
-#     for h_text in header_texts:
-#         query = list(jieba.cut(h_text))
-#         scores = bm25.get_scores(query)
-#         top_3_indices = np.argsort(scores)[-3:][::-1]
+#     for h_text, h_vec in zip(header_texts, header_vectors):
+#         sim_scores = cosine_similarity([h_vec], standard_vectors)[0]
+#         top_3_indices = np.argsort(sim_scores)[-3:][::-1]
 #         top_3 = [standard_texts[i] for i in top_3_indices]
-#         top_scores = [scores[i] for i in top_3_indices]
+#         top_scores = [sim_scores[i] for i in top_3_indices]
 #
 #         prompt = f"""请根据病历表头选择最匹配的标准术语：
 # 原始表头：{h_text}
@@ -227,8 +191,44 @@ def calculate_similarities_cosine() -> List[Dict]:
 #             "最高相似度": top_scores[0],
 #             "平均相似度": np.mean(top_scores)
 #         })
-#
 #     return results
+
+
+
+#bm25
+@detect_similarity_method
+def calculate_similarities_bm25() -> List[Dict]:
+    header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
+    standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].dropna().astype(str).tolist()
+
+    tokenized_corpus = [list(jieba.cut(text)) for text in standard_texts]
+    bm25 = BM25Okapi(tokenized_corpus)
+
+    results = []
+    for h_text in header_texts:
+        query = list(jieba.cut(h_text))
+        scores = bm25.get_scores(query)
+        top_3_indices = np.argsort(scores)[-3:][::-1]
+        top_3 = [standard_texts[i] for i in top_3_indices]
+        top_scores = [scores[i] for i in top_3_indices]
+
+        prompt = f"""请根据病历表头选择最匹配的标准术语：
+原始表头：{h_text}
+候选术语：
+{chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
+
+只需返回选择的编号(1-3)，不要解释。"""
+
+        llm_choice = generate_with_llm(prompt)
+        results.append({
+            "原始表头": h_text,
+            "候选术语": top_3,
+            "LLM选择": top_3[int(llm_choice) - 1] if llm_choice.isdigit() else "N/A",
+            "最高相似度": top_scores[0],
+            "平均相似度": np.mean(top_scores)
+        })
+
+    return results
 
 
 
