@@ -15,6 +15,7 @@ def find_most_similar_including_self(csv_path, embedding_path, output_path):
 
     # 计算余弦相似度矩阵（包括自己）
     sim_matrix = cosine_similarity(embeddings)
+    np.fill_diagonal(sim_matrix, 1.0)
 
     results = []
     for i, text in enumerate(texts):
