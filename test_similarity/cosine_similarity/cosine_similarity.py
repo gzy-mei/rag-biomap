@@ -39,6 +39,6 @@ def find_most_similar_including_self(csv_path, embedding_path, output_path):
 if __name__ == "__main__":
     csv_path = "data_description/test/header_row.csv"
     embedding_path = "Build_an_index/test/header_terms.npy"
-    output_path = "test_similarity/cosine_similarity/header_similarity_including_self.csv"
+    output_path = "test_similarity/cosine_similarity/yuxian-self.csv"
 
     find_most_similar_including_self(csv_path, embedding_path, output_path)
