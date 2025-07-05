@@ -22,3 +22,5 @@ url =/root/.cache/modelscope/hub/models/ZhipuAI/chatglm3-6b
 #run main.py
 python -m main
 
+可以使用 PyCharm 快捷键 Ctrl + / 一键注释整块选中区域。
+选中整段注释代码后，按Ctrl + /

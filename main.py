@@ -161,10 +161,10 @@ def detect_similarity_method(func):
         return func(*args, **kwargs)
     return wrapper
 
-"""余弦
+#余弦
 @detect_similarity_method
 def calculate_similarities_cosine() -> List[Dict]:
-   header_vectors = np.load(CONFIG["header_vectors"])
+    header_vectors = np.load(CONFIG["header_vectors"])
     standard_vectors = np.load(CONFIG["standard_vectors"])
     header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].tolist()
     standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].tolist()
@@ -176,24 +176,6 @@ def calculate_similarities_cosine() -> List[Dict]:
         top_3 = [standard_texts[i] for i in top_3_indices]
         top_scores = [sim_scores[i] for i in top_3_indices]
 
-        """
-#bm25
-@detect_similarity_method
-def calculate_similarities_bm25() -> List[Dict]:
-    header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
-    standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].dropna().astype(str).tolist()
-
-    tokenized_corpus = [list(jieba.cut(text)) for text in standard_texts]
-    bm25 = BM25Okapi(tokenized_corpus)
-
-    results = []
-    for h_text in header_texts:
-        query = list(jieba.cut(h_text))
-        scores = bm25.get_scores(query)
-        top_3_indices = np.argsort(scores)[-3:][::-1]
-        top_3 = [standard_texts[i] for i in top_3_indices]
-        top_scores = [scores[i] for i in top_3_indices]
-#从此处分割向量相似度计算
         prompt = f"""请根据病历表头选择最匹配的标准术语：
 原始表头：{h_text}
 候选术语：
@@ -210,6 +192,44 @@ def calculate_similarities_bm25() -> List[Dict]:
             "平均相似度": np.mean(top_scores)
         })
     return results
+
+
+
+# #bm25
+# @detect_similarity_method
+# def calculate_similarities_bm25() -> List[Dict]:
+#     header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
+#     standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].dropna().astype(str).tolist()
+#
+#     tokenized_corpus = [list(jieba.cut(text)) for text in standard_texts]
+#     bm25 = BM25Okapi(tokenized_corpus)
+#
+#     results = []
+#     for h_text in header_texts:
+#         query = list(jieba.cut(h_text))
+#         scores = bm25.get_scores(query)
+#         top_3_indices = np.argsort(scores)[-3:][::-1]
+#         top_3 = [standard_texts[i] for i in top_3_indices]
+#         top_scores = [scores[i] for i in top_3_indices]
+#
+#         prompt = f"""请根据病历表头选择最匹配的标准术语：
+# 原始表头：{h_text}
+# 候选术语：
+# {chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
+#
+# 只需返回选择的编号(1-3)，不要解释。"""
+#
+#         llm_choice = generate_with_llm(prompt)
+#         results.append({
+#             "原始表头": h_text,
+#             "候选术语": top_3,
+#             "LLM选择": top_3[int(llm_choice) - 1] if llm_choice.isdigit() else "N/A",
+#             "最高相似度": top_scores[0],
+#             "平均相似度": np.mean(top_scores)
+#         })
+#
+#     return results
+
 
 
 
@@ -249,14 +269,14 @@ def main():
 
     #CONFIG["embedding_model"] = get_embedding.__defaults__[0]
 
-    # 💡 根据需要选择哪种方法，动态赋值函数引用
-    similarity_method = "bm25"  # 你也可以改成 "cosine"
-    if similarity_method == "bm25":
+    # 自动检测当前启用的相似度计算函数是哪一个
+    if "calculate_similarities_bm25" in globals():
         calculate_similarities = calculate_similarities_bm25
-    elif similarity_method == "cosine":
+    elif "calculate_similarities_cosine" in globals():
         calculate_similarities = calculate_similarities_cosine
     else:
-        raise ValueError("不支持的相似度方法，请使用 'bm25' 或 'cosine'")
+        raise ValueError(
+            "未检测到相似度计算函数，请确保保留 calculate_similarities_bm25 或 calculate_similarities_cosine 中的一个")
 
     initialize_directories()
     print("🔄 处理非标准数据...")
