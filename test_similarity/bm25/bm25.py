@@ -35,7 +35,7 @@ def find_most_similar_bm25(csv_path, output_path):
     print(f"✅ 已保存 BM25 相似度结果到：{output_path}")
 
 if __name__ == "__main__":
-    csv_path = "/home/gzy/rag-biomap/data_description/test/header_row.csv"
-    output_path = "/home/gzy/rag-biomap/test_similarity/bm25/header_similarity_bm25.csv"
+    csv_path = "data_description/test/header_row.csv"
+    output_path = "test_similarity/bm25/header_similarity_bm25.csv"
 
     find_most_similar_bm25(csv_path, output_path)

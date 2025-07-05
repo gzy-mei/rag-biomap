@@ -28,6 +28,6 @@ def vectorize_header_terms(csv_path, save_path_npy):
     print(f"\n🎉 向量化完成！保存到：{save_path_npy}，共 {len(embeddings)} 条")
 
 if __name__ == "__main__":
-    csv_path = "/home/gzy/rag-biomap/data_description/test/header_row.csv"
-    save_path_npy = "/home/gzy/rag-biomap/Build_an_index/test/header_terms.npy"
+    csv_path = "data_description/test/header_row.csv"
+    save_path_npy = "Build_an_index/test/header_terms.npy"
     vectorize_header_terms(csv_path, save_path_npy)

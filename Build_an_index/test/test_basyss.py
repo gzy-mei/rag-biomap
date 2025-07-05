@@ -40,8 +40,8 @@ def vectorize_header_terms(csv_path, save_path_npy, failed_log_path=None):
         print(f"⚠️ 失败文本已保存到：{failed_log_path}")
 
 if __name__ == "__main__":
-    csv_path = "/home/gzy/rag-biomap/data_description/test/header_row.csv"
-    save_path_npy = "/home/gzy/rag-biomap/Build_an_index/test/header_terms.npy"
-    failed_log_path = "/home/gzy/rag-biomap/Build_an_index/test/header_terms_failed.csv"
+    csv_path = "data_description/test/header_row.csv"
+    save_path_npy = "Build_an_index/test/header_terms.npy"
+    failed_log_path = "Build_an_index/test/header_terms_failed.csv"
 
     vectorize_header_terms(csv_path, save_path_npy, failed_log_path)

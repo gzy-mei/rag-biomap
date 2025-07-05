@@ -3,13 +3,17 @@ import numpy as np
 import requests
 import os
 
-def get_embedding(text, model='nomic-embed-text', server_url='http://localhost:11434/api/embeddings'):
+from embedding_model.model.nomic_embed_text import get_embedding
+#from embedding_model.model.mxbai_embed_large import get_embedding
+#from embedding_model.model.bge_m3 import get_embedding
+
+"""def get_embedding(text, model='nomic-embed-text', server_url='http://localhost:11434/api/embeddings'):
     response = requests.post(server_url, json={
         'model': model,
         'prompt': text
     })
     response.raise_for_status()
-    return response.json()['embedding']
+    return response.json()['embedding']"""
 
 def vectorize_header_terms(csv_path, save_path_npy, failed_log_path=None):
     df = pd.read_csv(csv_path, header=None)
@@ -37,8 +41,8 @@ def vectorize_header_terms(csv_path, save_path_npy, failed_log_path=None):
         print(f"⚠️ 失败文本已保存到：{failed_log_path}")
 
 if __name__ == "__main__":
-    csv_path = "/home/gzy/rag-biomap/data_description/test/header_row.csv"
-    save_path_npy = "/home/gzy/rag-biomap/Build_an_index/test/header_terms.npy"
-    failed_log_path = "/home/gzy/rag-biomap/Build_an_index/test/header_terms_failed.csv"
+    csv_path = "data_description/test/header_row.csv"
+    save_path_npy = "Build_an_index/test/header_terms.npy"
+    failed_log_path = "Build_an_index/test/header_terms_failed.csv"
 
     vectorize_header_terms(csv_path, save_path_npy, failed_log_path)

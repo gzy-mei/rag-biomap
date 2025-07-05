@@ -38,8 +38,8 @@ def extract_first_row_to_csv(input_excel_path, output_csv_path):
 
 def main():
     # 定义文件路径
-    input_excel = "/home/gzy/rag-biomap/dataset/导出数据第1~1000条数据_病案首页-.xlsx"
-    output_csv = "/home/gzy/rag-biomap/data_description/test/header_row.csv"
+    input_excel = "dataset/导出数据第1~1000条数据_病案首页-.xlsx"
+    output_csv = "data_description/test/header_row.csv"
 
     # 调用函数处理文件
     success = extract_first_row_to_csv(input_excel, output_csv)

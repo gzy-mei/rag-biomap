@@ -39,6 +39,6 @@ def extract_name_columns_from_excel(
 
 
 if __name__ == "__main__":
-    excel_path = "/home/gzy/rag-biomap/dataset/VTE-PTE-CTEPH研究数据库.xlsx"
-    output_csv = "/home/gzy/rag-biomap/data_description/test/标准术语_病案首页.csv"
+    excel_path = "dataset/VTE-PTE-CTEPH研究数据库.xlsx"
+    output_csv = "data_description/test/标准术语_病案首页.csv"
     extract_name_columns_from_excel(excel_path, output_csv)

@@ -37,8 +37,8 @@ def find_most_similar_including_self(csv_path, embedding_path, output_path):
     print(f"✅ 已保存相似度比较结果到：{output_path}")
 
 if __name__ == "__main__":
-    csv_path = "/home/gzy/rag-biomap/data_description/test/header_row.csv"
-    embedding_path = "/home/gzy/rag-biomap/Build_an_index/test/header_terms.npy"
-    output_path = "/home/gzy/rag-biomap/test_similarity/cosine_similarity/header_similarity_including_self.csv"
+    csv_path = "data_description/test/header_row.csv"
+    embedding_path = "Build_an_index/test/header_terms.npy"
+    output_path = "test_similarity/cosine_similarity/header_similarity_including_self.csv"
 
     find_most_similar_including_self(csv_path, embedding_path, output_path)

@@ -38,6 +38,6 @@ def extract_name_columns_from_excel(excel_path, output_csv):
     print(f"✅ 已保存到 {output_csv}，共提取 {len(result_df)} 条记录。")
 
 if __name__ == "__main__":
-    excel_path = "/home/gzy/rag-biomap/dataset/VTE-PTE-CTEPH研究数据库.xlsx"
-    output_csv = "/home/gzy/rag-biomap/data_description/test/标准术语合并结果.csv"
+    excel_path = "dataset/VTE-PTE-CTEPH研究数据库.xlsx"
+    output_csv = "data_description/test/标准术语合并结果.csv"
     extract_name_columns_from_excel(excel_path, output_csv)

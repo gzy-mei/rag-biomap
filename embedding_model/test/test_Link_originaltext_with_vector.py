@@ -2,11 +2,11 @@ import pandas as pd
 import numpy as np
 
 # 1. 加载原始文本
-df = pd.read_csv("/home/gzy/rag-biomap/data_description/标准术语合并结果.csv")
+df = pd.read_csv("data_description/标准术语合并结果.csv")
 texts = df.iloc[1:, 2].dropna().astype(str).tolist()  # 假设第3列是文本
 
 # 2. 加载向量文件
-embeddings = np.load("/home/gzy/rag-biomap/Build_an_index/standard_terms.npy")
+embeddings = np.load("Build_an_index/standard_terms.npy")
 
 # 3. 打印前5条文本及其向量
 for i in range(5):

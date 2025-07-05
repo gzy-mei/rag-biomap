@@ -1,16 +1,20 @@
 import pandas as pd
 import numpy as np
-import requests
 import os
-import requests
 
-def get_embedding(text, model='nomic-embed-text', server_url='http://localhost:11434/api/embeddings'):
+from embedding_model.model.nomic_embed_text import get_embedding
+#from embedding_model.model.mxbai_embed_large import get_embedding
+#from embedding_model.model.bge_m3 import get_embedding
+
+
+
+"""def get_embedding(text, model='nomic-embed-text', server_url='http://localhost:11434/api/embeddings'):
     response = requests.post(server_url, json={
         'model': model,
         'prompt': text
     })
     response.raise_for_status()
-    return response.json()['embedding']
+    return response.json()['embedding']"""
 
 
 def build_index_from_csv(csv_path, save_path_npy, column_index=2, verbose=False, failed_log_path=None):

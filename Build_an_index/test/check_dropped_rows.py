@@ -1,6 +1,6 @@
 import pandas as pd
 
-csv_path = "/home/gzy/rag-biomap/data_description/test/header_row.csv"
+csv_path = "data_description/test/header_row.csv"
 
 # 读取原始CSV，不过滤空行
 df_raw = pd.read_csv(csv_path, header=None)

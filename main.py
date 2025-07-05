@@ -1,14 +1,10 @@
 import sys
 import os
 
-# 将新的模块路径添加到sys.path，方便import
-sys.path.extend([
-    "/home/gzy/rag-biomap/data_description",        # 你的data_description目录
-    "/home/gzy/rag-biomap/Build_an_index",          # Build_an_index目录
-])
-
+import argparse
 import pandas as pd
 import numpy as np
+import jieba
 from sklearn.metrics.pairwise import cosine_similarity
 from data_description.invoke_Non_standard_data import extract_first_row_to_csv
 from Build_an_index.invoke_Build_index import get_embedding, build_index_from_csv
@@ -17,31 +13,31 @@ from openai import OpenAI
 from typing import List, Dict
 from Build_an_index.invoke_Non_standard_data_Build_index import vectorize_header_terms
 from rank_bm25 import BM25Okapi
-import jieba
+
 
 
 def debug_data():
     print("==== 调试开始 ====")
 
     # 1. 查看标准术语CSV文件行数和sheet名称分布
-    df_standard = pd.read_csv("/home/gzy/rag-biomap/data_description/test/标准术语_病案首页.csv")
+    df_standard = pd.read_csv("data_description/test/标准术语_病案首页.csv")
     print(f"标准术语CSV总行数: {len(df_standard)}")
     print("标准术语CSV中各sheet名称计数:")
     print(df_standard["sheet名称"].value_counts())
 
     # 2. 查看非标准数据CSV行数
-    df_header = pd.read_csv("/home/gzy/rag-biomap/data_description/test/header_row.csv", header=None)
+    df_header = pd.read_csv("data_description/test/header_row.csv", header=None)
     print(f"非标准数据CSV总行数: {len(df_header)}")
 
     # 3. 查看向量文件内容数量
     try:
-        header_vectors = np.load("/home/gzy/rag-biomap/Build_an_index/test/header_terms.npy")
+        header_vectors = np.load("Build_an_index/test/header_terms.npy")
         print(f"header_vectors数量: {header_vectors.shape[0]}")
     except Exception as e:
         print(f"读取header_vectors时出错: {e}")
 
     try:
-        standard_vectors = np.load("/home/gzy/rag-biomap/Build_an_index/test/standard_terms.npy")
+        standard_vectors = np.load("Build_an_index/test/standard_terms.npy")
         print(f"standard_vectors数量: {standard_vectors.shape[0]}")
     except Exception as e:
         print(f"读取standard_vectors时出错: {e}")
@@ -57,7 +53,7 @@ def debug_data():
 
     print("==== 调试结束 ====")
 
-# 调用这个调试函数，放在main函数的开始或你想检查的位置
+# 调用这个调试函数
 if __name__ == "__main__":
     debug_data()
 
@@ -71,23 +67,27 @@ client = OpenAI(
 
 # 配置参数
 CONFIG = {
-    "non_standard_excel": "/home/gzy/rag-biomap/dataset/导出数据第1~1000条数据_病案首页-.xlsx",
-    "standard_excel": "/home/gzy/rag-biomap/dataset/VTE-PTE-CTEPH研究数据库.xlsx",
-    "header_csv": "/home/gzy/rag-biomap/data_description/test/header_row.csv",
-    "standard_terms_csv": "/home/gzy/rag-biomap/data_description/test/标准术语_病案首页.csv",
-    "header_vectors": "/home/gzy/rag-biomap/Build_an_index/test/header_terms.npy",
-    "standard_vectors": "/home/gzy/rag-biomap/Build_an_index/test/standard_terms.npy",
-    "output_excel": "/home/gzy/rag-biomap/dataset/匹配结果对比.xlsx",
+    "non_standard_excel": "dataset/导出数据第1~1000条数据_病案首页-.xlsx",
+    "standard_excel": "dataset/VTE-PTE-CTEPH研究数据库.xlsx",
+    "header_csv": "data_description/test/header_row.csv",
+    "standard_terms_csv": "data_description/test/标准术语_病案首页.csv",
+    "header_vectors": "Build_an_index/test/header_terms.npy",
+    "standard_vectors": "Build_an_index/test/standard_terms.npy",
+    "output_excel": "dataset/匹配结果对比.xlsx",
+    #"embedding_model": "nomic-embed-text",  # 修改为当前使用的嵌入模型名：bge-m3、nomic-embed-text、mxbai-embed-large还需要再调用函数中修改！！！
+    #"similarity_method": "BM25",  # 相似度方法，有：BM25，Cosine
+    "output_dir": "dataset/Matching_Results_Comparison"
+
 }
 
-# 后续函数保持不变，直接用你之前写的即可
+
 
 def initialize_directories():
     for path in [CONFIG["header_csv"], CONFIG["header_vectors"]]:
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
 def process_non_standard_data() -> List[str]:
-    # 先调用你的 extract_first_row_to_csv，确保 CSV 生成成功
+    # 先调用 extract_first_row_to_csv，确保 CSV 生成成功
     if not extract_first_row_to_csv(CONFIG["non_standard_excel"], CONFIG["header_csv"]):
         raise RuntimeError("非标准数据处理失败")
 
@@ -95,7 +95,7 @@ def process_non_standard_data() -> List[str]:
     vectorize_header_terms(
         CONFIG["header_csv"],
         CONFIG["header_vectors"],
-        failed_log_path="/home/gzy/rag-biomap/Build_an_index/test/header_terms_failed.csv"
+        failed_log_path="Build_an_index/test/header_terms_failed.csv"
     )
 
     # 返回所有文本列表
@@ -124,7 +124,7 @@ def process_standard_data() -> List[str]:
 
     terms = df_filtered["内容"].dropna().astype(str).tolist()
 
-    new_csv_path = "/home/gzy/rag-biomap/data_description/test/病案首页信息_内容.csv"
+    new_csv_path = "data_description/test/病案首页信息_内容.csv"
     df_filtered[["内容"]].to_csv(new_csv_path, index=False, encoding='utf-8-sig')
     print(f"✅ 已保存筛选后内容到：{new_csv_path}，共 {len(terms)} 条")
 
@@ -149,9 +149,21 @@ def generate_with_llm(prompt: str) -> str:
         print(f"⚠️ LLM调用失败：{e}")
         return "[默认回复]"
 
+def detect_similarity_method(func):
+    def wrapper(*args, **kwargs):
+        method_name = func.__name__.lower()
+        if "bm25" in method_name:
+            CONFIG["similarity_method"] = "BM25"
+        elif "cosine" in method_name:
+            CONFIG["similarity_method"] = "Cosine"
+        else:
+            CONFIG["similarity_method"] = "Unknown"
+        return func(*args, **kwargs)
+    return wrapper
 
 """余弦
-def calculate_similarities() -> List[Dict]:
+@detect_similarity_method
+def calculate_similarities_cosine() -> List[Dict]:
    header_vectors = np.load(CONFIG["header_vectors"])
     standard_vectors = np.load(CONFIG["standard_vectors"])
     header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].tolist()
@@ -166,7 +178,8 @@ def calculate_similarities() -> List[Dict]:
 
         """
 #bm25
-def calculate_similarities() -> List[Dict]:
+@detect_similarity_method
+def calculate_similarities_bm25() -> List[Dict]:
     header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
     standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].dropna().astype(str).tolist()
 
@@ -180,7 +193,7 @@ def calculate_similarities() -> List[Dict]:
         top_3_indices = np.argsort(scores)[-3:][::-1]
         top_3 = [standard_texts[i] for i in top_3_indices]
         top_scores = [scores[i] for i in top_3_indices]
-
+#从此处分割向量相似度计算
         prompt = f"""请根据病历表头选择最匹配的标准术语：
 原始表头：{h_text}
 候选术语：
@@ -198,13 +211,53 @@ def calculate_similarities() -> List[Dict]:
         })
     return results
 
+
+
 def save_results(results: List[Dict]):
     df = pd.DataFrame(results)
     df['匹配成功'] = df.apply(lambda x: x['LLM选择'] in x['候选术语'][0], axis=1)
-    df.to_excel(CONFIG["output_excel"], index=False, engine='openpyxl')
-    print(f"✅ 结果已保存到 {CONFIG['output_excel']}，共 {len(df)} 条记录")
+
+    os.makedirs(CONFIG["output_dir"], exist_ok=True)
+    # 构造动态文件名
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    filename = f"匹配结果对比-{CONFIG['embedding_model']}_{CONFIG['similarity_method']}_{timestamp}.xlsx"
+    output_path = os.path.join(CONFIG["output_dir"], filename)
+
+    df.to_excel(output_path, index=False, engine='openpyxl')
+    print(f"✅ 结果已保存到 {output_path}，共 {len(df)} 条记录")
+
+
 
 def main():
+    from Build_an_index.invoke_Build_index import get_embedding
+
+
+    # 自动判断嵌入模型名
+    module_path = get_embedding.__module__
+
+    print(f"📁 检测到 get_embedding 来自模块：{module_path}")  # ✅ ：调试输出
+
+    if "bge_m3" in module_path:
+        CONFIG["embedding_model"] = "bge-m3"
+    elif "nomic_embed_text" in module_path:
+        CONFIG["embedding_model"] = "nomic-embed-text"
+    elif "mxbai_embed_large" in module_path:
+        CONFIG["embedding_model"] = "mxbai-embed-large"
+    else:
+        CONFIG["embedding_model"] = "unknown"
+
+    #CONFIG["embedding_model"] = get_embedding.__defaults__[0]
+
+    # 💡 根据需要选择哪种方法，动态赋值函数引用
+    similarity_method = "bm25"  # 你也可以改成 "cosine"
+    if similarity_method == "bm25":
+        calculate_similarities = calculate_similarities_bm25
+    elif similarity_method == "cosine":
+        calculate_similarities = calculate_similarities_cosine
+    else:
+        raise ValueError("不支持的相似度方法，请使用 'bm25' 或 'cosine'")
+
     initialize_directories()
     print("🔄 处理非标准数据...")
     header_texts = process_non_standard_data()
@@ -214,6 +267,9 @@ def main():
 
     print("🔍 计算相似度并执行简化RAG流程...")
     results = calculate_similarities()
+
+#运行结果显示：📐 当前使用的相似度计算方法为：......
+    print(f"📐 当前使用的相似度计算方法为：{CONFIG['similarity_method']}")
 
     print("💾 保存结果...")
     save_results(results)
