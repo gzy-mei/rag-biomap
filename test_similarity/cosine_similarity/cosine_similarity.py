@@ -22,7 +22,8 @@ def find_most_similar_including_self(csv_path, embedding_path, output_path):
         max_idx = np.argmax(sim_scores)  # 包含自己时，最大通常是自己
 
         max_text = texts[max_idx]
-        max_score = sim_scores[max_idx]
+        max_score = round(min(sim_scores[max_idx], 1.0), 6)
+
 
         results.append({
             "原文本": text,
@@ -39,6 +40,6 @@ def find_most_similar_including_self(csv_path, embedding_path, output_path):
 if __name__ == "__main__":
     csv_path = "data_description/test/header_row.csv"
     embedding_path = "Build_an_index/test/header_terms.npy"
-    output_path = "test_similarity/cosine_similarity/yuxian-self.csv"
+    output_path = "test_similarity/cosine_similarity/after_yuxian_self.csv"
 
     find_most_similar_including_self(csv_path, embedding_path, output_path)
