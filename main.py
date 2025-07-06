@@ -1,17 +1,19 @@
 import sys
 import os
-
 import argparse
 import pandas as pd
 import numpy as np
 import jieba
-from sklearn.metrics.pairwise import cosine_similarity
-from data_description.invoke_Non_standard_data import extract_first_row_to_csv
-from Build_an_index.invoke_Build_index import get_embedding, build_index_from_csv
-from data_description.invoke_data_manipulaltion_basyxx import extract_name_columns_from_excel
 from openai import OpenAI
 from typing import List, Dict
+#进行数据集处理
+from data_description.invoke_data_manipulaltion_basyxx import extract_name_columns_from_excel
+from data_description.invoke_Non_standard_data import extract_first_row_to_csv
+#进行向量化
+from Build_an_index.invoke_Build_index import get_embedding, build_index_from_csv
 from Build_an_index.invoke_Non_standard_data_Build_index import vectorize_header_terms
+#计算向量相似度
+from sklearn.metrics.pairwise import cosine_similarity
 from rank_bm25 import BM25Okapi
 
 
@@ -81,17 +83,22 @@ CONFIG = {
 }
 
 
-
+#初始化目录结构： 根据配置文件CONFIG中的路径，自动创建这些路径所在的文件夹目录（如果目录不存在滴话）
 def initialize_directories():
     for path in [CONFIG["header_csv"], CONFIG["header_vectors"]]:
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
+#处理非标准数据（表头信息）
 def process_non_standard_data() -> List[str]:
-    # 先调用 extract_first_row_to_csv，确保 CSV 生成成功
+    #from data_description.invoke_Non_standard_data import extract_first_row_to_csv
+    # 先调用extract_first_row_to_csv，确保CSV生成成功
+    #结果生成：data_description/test/header_row.csv
     if not extract_first_row_to_csv(CONFIG["non_standard_excel"], CONFIG["header_csv"]):
         raise RuntimeError("非标准数据处理失败")
 
-    # 调用封装好的向量化函数，替代原来的 build_index_from_csv 调用
+    # 调用封装好的向量化函数
+    #from Build_an_index.invoke_Non_standard_data_Build_index import vectorize_header_terms
+    #结果生成：Build_an_index/test/header_terms.npy
     vectorize_header_terms(
         CONFIG["header_csv"],
         CONFIG["header_vectors"],
@@ -101,7 +108,14 @@ def process_non_standard_data() -> List[str]:
     # 返回所有文本列表
     return pd.read_csv(CONFIG["header_csv"], header=None)[0].tolist()
 
+#处理标准术语数据（知识库）
 def process_standard_data() -> List[str]:
+    """
+    处理标准术语数据：提取术语列 → 保存CSV → 向量化 → 返回术语列表
+    """
+    # 直接提取标准术语sheet名称、原列名、内容
+    # from data_description.invoke_data_manipulaltion_basyxx import extract_name_columns_from_excel
+    #结果生成：data_description/test/标准术语_病案首页.csv
     success = extract_name_columns_from_excel(
         CONFIG["standard_excel"],
         CONFIG["standard_terms_csv"],
@@ -111,29 +125,24 @@ def process_standard_data() -> List[str]:
     if not success:
         raise RuntimeError("标准术语提取失败")
 
+    # 加载CSV并提取术语（即“内容”列-不会包含“内容”这两个字。）
     df = pd.read_csv(CONFIG["standard_terms_csv"])
-    required_columns = ["sheet名称", "内容"]
-    if not all(col in df.columns for col in required_columns):
-        missing = [col for col in required_columns if col not in df.columns]
-        raise ValueError(f"CSV文件缺少必要列: {missing}")
+    if "内容" not in df.columns:
+        raise ValueError("标准术语CSV缺少 '内容' 列")
 
-    target_sheet = "病案首页信息"
-    df_filtered = df[df["sheet名称"] == target_sheet]
-    if df_filtered.empty:
-        raise ValueError(f"未找到工作表: {target_sheet}")
+    terms = df["内容"].dropna().astype(str).tolist()
+    print(f"✅ 成功加载标准术语，共 {len(terms)} 条")
 
-    terms = df_filtered["内容"].dropna().astype(str).tolist()
-
-    new_csv_path = "data_description/test/病案首页信息_内容.csv"
-    df_filtered[["内容"]].to_csv(new_csv_path, index=False, encoding='utf-8-sig')
-    print(f"✅ 已保存筛选后内容到：{new_csv_path}，共 {len(terms)} 条")
-
+    # 向量化“内容”列
+    #结果生成：Build_an_index/test/standard_terms.npy
+    #from Build_an_index.invoke_Build_index import get_embedding, build_index_from_csv
     build_index_from_csv(
-        new_csv_path,
-        CONFIG["standard_vectors"],
-        column_index=0,
+        CONFIG["standard_terms_csv"],     # 直接使用原CSV
+        CONFIG["standard_vectors"],       # 保存向量路径
+        column_index=2,                   # “内容”列在CSV中的位置
         verbose=False
     )
+
     return terms
 
 def generate_with_llm(prompt: str) -> str:
@@ -193,8 +202,6 @@ def detect_similarity_method(func):
 #         })
 #     return results
 
-
-
 #bm25
 @detect_similarity_method
 def calculate_similarities_bm25() -> List[Dict]:
@@ -230,14 +237,14 @@ def calculate_similarities_bm25() -> List[Dict]:
 
     return results
 
-
-
-
+#结果保存函数
 def save_results(results: List[Dict]):
     df = pd.DataFrame(results)
+    #如果 LLM 的选择在候选术语列表中排名第 1（即第一个候选），则判定匹配成功；
     df['匹配成功'] = df.apply(lambda x: x['LLM选择'] in x['候选术语'][0], axis=1)
 
     os.makedirs(CONFIG["output_dir"], exist_ok=True)
+
     # 构造动态文件名
     from datetime import datetime
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
@@ -253,7 +260,7 @@ def main():
     from Build_an_index.invoke_Build_index import get_embedding
 
 
-    # 自动判断嵌入模型名
+    #自动识别当前使用的嵌入模型--方法：获取get_embedding函数的来源模块路径（比如 bge_m3.py）
     module_path = get_embedding.__module__
 
     print(f"📁 检测到 get_embedding 来自模块：{module_path}")  # ✅ ：调试输出
@@ -269,7 +276,7 @@ def main():
 
     #CONFIG["embedding_model"] = get_embedding.__defaults__[0]
 
-    # 自动检测当前启用的相似度计算函数是哪一个
+    # 自动检测当前启用的相似度计算函数是哪一个-通过全局变量表globals()来检测哪个函数存在，是我有没有“定义”它。
     if "calculate_similarities_bm25" in globals():
         calculate_similarities = calculate_similarities_bm25
     elif "calculate_similarities_cosine" in globals():
