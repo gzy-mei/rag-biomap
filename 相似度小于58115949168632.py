@@ -239,7 +239,7 @@ def save_results(results: List[Dict]):
         raise ValueError("GT.xlsx 必须至少包含两列，第二列为标准答案")
 
     # 获取 GT 答案（第2列），注意按实际数据行数对齐
-    gt_answers = gt_df.iloc[:, 1].astype(str).tolist()
+    gt_answers = gt_df.iloc[:, 1].fillna("").astype(str).tolist()
     df["GT标准答案"] = pd.Series(gt_answers[:len(df)])
 
     # 比较 LLM选择 与 GT标准答案 是否一致（空格也视为合法）
@@ -254,7 +254,7 @@ def save_results(results: List[Dict]):
     # 输出目录与路径
     output_dir = "/home/gzy/rag-biomap/threshold_test/test/bm25"
     os.makedirs(output_dir, exist_ok=True)
-    filename = "当相似度小于58115949168632准确率.xlsx"
+    filename = "当相似度小于58115949168632准确率最终版.xlsx"
     output_path = os.path.join(output_dir, filename)
 
     # 保存结果
