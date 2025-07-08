@@ -4,8 +4,8 @@ import requests
 import os
 
 #from embedding_model.model.nomic_embed_text import get_embedding
-from embedding_model.model.mxbai_embed_large import get_embedding
-#from embedding_model.model.bge_m3 import get_embedding
+#from embedding_model.model.mxbai_embed_large import get_embedding
+from embedding_model.model.bge_m3 import get_embedding
 
 """def get_embedding(text, model='nomic-embed-text', server_url='http://localhost:11434/api/embeddings'):
     response = requests.post(server_url, json={

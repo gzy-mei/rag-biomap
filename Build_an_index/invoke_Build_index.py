@@ -3,8 +3,8 @@ import numpy as np
 import os
 
 #from embedding_model.model.nomic_embed_text import get_embedding
-from embedding_model.model.mxbai_embed_large import get_embedding
-#from embedding_model.model.bge_m3 import get_embedding
+#from embedding_model.model.mxbai_embed_large import get_embedding
+from embedding_model.model.bge_m3 import get_embedding
 
 
 
