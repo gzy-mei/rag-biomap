@@ -186,7 +186,7 @@ def calculate_similarities_bm25() -> List[Dict]:
     bm25 = BM25Okapi(tokenized_corpus)
 
     results = []
-    threshold = 5.8115949168632  # 设置你的相似度阈值
+
 
     for h_text in header_texts:
         query = list(jieba.cut(h_text))
@@ -227,9 +227,34 @@ def calculate_similarities_bm25() -> List[Dict]:
 def save_results(results: List[Dict]):
     df = pd.DataFrame(results)
 
+    # 去掉“平均相似度”列（如果存在）
+    if "平均相似度" in df.columns:
+        df.drop(columns=["平均相似度"], inplace=True)
+
+    # 加载 GT 标准答案
+    gt_path = "/home/gzy/rag-biomap/dataset/GT.xlsx"
+    gt_df = pd.read_excel(gt_path, header=None)
+
+    if gt_df.shape[1] < 2:
+        raise ValueError("GT.xlsx 必须至少包含两列，第二列为标准答案")
+
+    # 取第二列作为 GT 答案（自动对齐长度）
+    df["GT标准答案"] = gt_df.iloc[:len(df), 1].astype(str)
+
+    # 比较 LLM选择 与 GT标准答案 是否一致（包括空格）
+    def match_gt(row):
+        return row["LLM选择"] == row["GT标准答案"]
+
+    df["是否匹配GT"] = df.apply(match_gt, axis=1)
+
+    # 原始匹配成功（top-1命中）列（保留）
     df['匹配成功'] = df.apply(lambda x: x['LLM选择'] in x['候选术语'][0], axis=1)
 
-    
+    # ✅ 新增：计算准确率并加一列
+    accuracy = df["是否匹配GT"].mean()
+    df["LLM选择与GT标准答案对比准确率"] = [accuracy] * len(df)
+
+    # 输出文件
     output_dir = "/home/gzy/rag-biomap/threshold_test/test/bm25"
     os.makedirs(output_dir, exist_ok=True)
 
@@ -238,7 +263,7 @@ def save_results(results: List[Dict]):
 
     df.to_excel(output_path, index=False, engine='openpyxl')
     print(f"✅ 结果已保存到 {output_path}，共 {len(df)} 条记录")
-
+    print(f"📊 GT匹配准确率为：{accuracy:.2%}")
 
 
 
