@@ -231,39 +231,39 @@ def save_results(results: List[Dict]):
     if "平均相似度" in df.columns:
         df.drop(columns=["平均相似度"], inplace=True)
 
-    # 加载 GT 标准答案
+    # 加载 GT 标准答案（跳过表头，使用 header=0）
     gt_path = "/home/gzy/rag-biomap/dataset/GT.xlsx"
-    gt_df = pd.read_excel(gt_path, header=None)
+    gt_df = pd.read_excel(gt_path, header=0)  # header=0 可跳过“正确答案”等表头
 
     if gt_df.shape[1] < 2:
         raise ValueError("GT.xlsx 必须至少包含两列，第二列为标准答案")
 
-    # 取第二列作为 GT 答案（自动对齐长度）
-    df["GT标准答案"] = gt_df.iloc[:len(df), 1].astype(str)
+    # 获取 GT 答案（第2列），注意按实际数据行数对齐
+    gt_answers = gt_df.iloc[:, 1].astype(str).tolist()
+    df["GT标准答案"] = pd.Series(gt_answers[:len(df)])
 
-    # 比较 LLM选择 与 GT标准答案 是否一致（包括空格）
-    def match_gt(row):
-        return row["LLM选择"] == row["GT标准答案"]
+    # 比较 LLM选择 与 GT标准答案 是否一致（空格也视为合法）
+    df["是否匹配GT"] = df.apply(lambda row: row["LLM选择"] == row["GT标准答案"], axis=1)
 
-    df["是否匹配GT"] = df.apply(match_gt, axis=1)
+    # 匹配成功列（是否出现在候选术语 top1 中）
+    df["匹配成功"] = df.apply(lambda x: x["LLM选择"] in x["候选术语"][0], axis=1)
 
-    # 原始匹配成功（top-1命中）列（保留）
-    df['匹配成功'] = df.apply(lambda x: x['LLM选择'] in x['候选术语'][0], axis=1)
-
-    # ✅ 新增：计算准确率并加一列
+    # 计算总体准确率（匹配GT的比例）
     accuracy = df["是否匹配GT"].mean()
-    df["LLM选择与GT标准答案对比准确率"] = [accuracy] * len(df)
 
-    # 输出文件
+    # 输出目录与路径
     output_dir = "/home/gzy/rag-biomap/threshold_test/test/bm25"
     os.makedirs(output_dir, exist_ok=True)
-
     filename = "当相似度小于58115949168632准确率.xlsx"
     output_path = os.path.join(output_dir, filename)
 
-    df.to_excel(output_path, index=False, engine='openpyxl')
+    # 保存结果
+    df.to_excel(output_path, index=False, engine="openpyxl")
+
+    # ✅ 打印准确率（或者另存为单独文件）
     print(f"✅ 结果已保存到 {output_path}，共 {len(df)} 条记录")
-    print(f"📊 GT匹配准确率为：{accuracy:.2%}")
+    print(f"📊 LLM选择与GT标准答案匹配准确率为：{accuracy:.2%}")
+
 
 
 
