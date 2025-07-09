@@ -141,13 +141,13 @@ def generate_with_llm(prompt: str) -> str:
         if match:
             llm_choice = match.group(1)
         else:
-            llm_choice = "N/A"
+            llm_choice = ""
 
         return llm_choice
 
     except Exception as e:
         print(f"⚠️ LLM调用失败：{e}")
-        return "N/A"
+        return ""
 
 def detect_similarity_method(func):
     def wrapper(*args, **kwargs):
@@ -198,14 +198,15 @@ def calculate_similarities_bm25() -> List[Dict]:
             if llm_choice.isdigit() and 1 <= int(llm_choice) <= 3:
                 llm_choice_result = top_3[int(llm_choice) - 1]
             else:
-                llm_choice_result = "N/A"
+                llm_choice_result = ""
 
         results.append({
             "原始表头": h_text,
             "候选术语": top_3,
             "LLM选择": llm_choice_result,
             "最高相似度": top_scores[0],
-            "平均相似度": np.mean(top_scores)
+            "平均相似度": np.mean(top_scores),
+            "是否调用LLM": "是" if top_scores[0] >= max(scores) * threshold_ratio else "否"
         })
 
     return results
@@ -269,7 +270,9 @@ def save_results(results: List[Dict]):
     df["GT标准答案"] = pd.Series(gt_answers[:len(df)])
 
     # 匹配判断
-    df["是否匹配GT"] = df.apply(lambda row: row["LLM选择"] == row["GT标准答案"], axis=1)
+    df["是否匹配GT"] = df.apply(lambda row: row["LLM选择"].strip() == row["GT标准答案"].strip(), axis=1)
+
+    #df["是否匹配GT"] = df.apply(lambda row: row["LLM选择"] == row["GT标准答案"], axis=1)
 
     # 统计信息
     total_accuracy = df["是否匹配GT"].mean()
