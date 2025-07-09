@@ -5,7 +5,6 @@ import argparse
 import pandas as pd
 import numpy as np
 import jieba
-import tqdm
 from openai import OpenAI
 from typing import List, Dict
 #进行数据集处理
@@ -115,11 +114,13 @@ def generate_with_llm(prompt: str) -> str:
             presence_penalty=1.5,
             extra_body={
                 "min_p": 0,
+                "chat_template_kwargs": {"enable_thinking": False},
             },
 
         )
 
         message_obj = response.choices[0].message
+        print(message_obj)
 
         # 提取 LLM 返回内容（兼容 CAIRI 的 reasoning_content 字段）
         raw_content = None
@@ -160,8 +161,6 @@ def detect_similarity_method(func):
 # =========================
 threshold_ratio = 0.85
 #bm25
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
 @detect_similarity_method
 def calculate_similarities_bm25() -> List[Dict]:
     header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
@@ -172,16 +171,16 @@ def calculate_similarities_bm25() -> List[Dict]:
 
     results = []
 
-    def process_single_header(h_text: str) -> Dict:
+    for h_text in header_texts:
         query = list(jieba.cut(h_text))
         scores = bm25.get_scores(query)
         top_3_indices = np.argsort(scores)[-3:][::-1]
         top_3 = [standard_texts[i] for i in top_3_indices]
         top_scores = [scores[i] for i in top_3_indices]
 
+        # 判断是否低于阈值
         if top_scores[0] < max(scores) * threshold_ratio:
-            llm_choice_result = ""
-            called_llm = "否"
+            llm_choice_result = ""  # 不调用LLM，直接空字符串
         else:
             prompt = f"""请根据病历表头选择最匹配的标准术语：
 原始表头：{h_text}
@@ -189,40 +188,23 @@ def calculate_similarities_bm25() -> List[Dict]:
 {chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
 
 只需返回选择的编号(1-3)，不要解释。"""
+
             llm_choice = generate_with_llm(prompt)
             if llm_choice.isdigit() and 1 <= int(llm_choice) <= 3:
                 llm_choice_result = top_3[int(llm_choice) - 1]
             else:
                 llm_choice_result = ""
-            called_llm = "是"
 
-        return {
+        results.append({
             "原始表头": h_text,
             "候选术语": top_3,
             "LLM选择": llm_choice_result,
             "最高相似度": top_scores[0],
             "平均相似度": np.mean(top_scores),
-            "是否调用LLM": called_llm
-        }
-
-    # 多线程执行（线程池）
-    with ThreadPoolExecutor(max_workers=18) as executor:
-        future_to_header = {executor.submit(process_single_header, h): h for h in header_texts}
-        from tqdm import tqdm  # 确保在顶部 import 了 tqdm
-
-        # 带进度条的多线程处理
-        with tqdm(total=len(header_texts), desc="🧠 LLM匹配中", ncols=80) as pbar:
-            for future in as_completed(future_to_header):
-                try:
-                    result = future.result()
-                    results.append(result)
-                except Exception as e:
-                    print(f"⚠️ 表头处理失败: {e}")
-                finally:
-                    pbar.update(1)
+            "是否调用LLM": "是" if top_scores[0] >= max(scores) * threshold_ratio else "否"
+        })
 
     return results
-
 
 
 
