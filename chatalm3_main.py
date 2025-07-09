@@ -1,11 +1,11 @@
 import sys
 import os
+import re
 import argparse
 import pandas as pd
 import numpy as np
 import jieba
-import re
-from openai import OpenAI
+#from openai import OpenAI
 from typing import List, Dict
 #进行数据集处理
 from data_description.invoke_data_manipulaltion_basyxx import extract_name_columns_from_excel
@@ -16,57 +16,15 @@ from Build_an_index.invoke_Non_standard_data_Build_index import vectorize_header
 #计算向量相似度
 from sklearn.metrics.pairwise import cosine_similarity
 from rank_bm25 import BM25Okapi
-
-
-
-def debug_data():
-    print("==== 调试开始 ====")
-
-    # 1. 查看标准术语CSV文件行数和sheet名称分布
-    df_standard = pd.read_csv("data_description/test/标准术语_病案首页.csv")
-    print(f"标准术语CSV总行数: {len(df_standard)}")
-    print("标准术语CSV中各sheet名称计数:")
-    print(df_standard["sheet名称"].value_counts())
-
-    # 2. 查看非标准数据CSV行数
-    df_header = pd.read_csv("data_description/test/header_row.csv", header=None)
-    print(f"非标准数据CSV总行数: {len(df_header)}")
-
-    # 3. 查看向量文件内容数量
-    try:
-        header_vectors = np.load("Build_an_index/test/header_terms.npy")
-        print(f"header_vectors数量: {header_vectors.shape[0]}")
-    except Exception as e:
-        print(f"读取header_vectors时出错: {e}")
-
-    try:
-        standard_vectors = np.load("Build_an_index/test/standard_terms.npy")
-        print(f"standard_vectors数量: {standard_vectors.shape[0]}")
-    except Exception as e:
-        print(f"读取standard_vectors时出错: {e}")
-
-    # 4. 计算相似度时打印异常LLM选择
-    header_texts = df_header[0].tolist()
-    standard_texts = df_standard["内容"].dropna().astype(str).tolist()
-
-    for h_text in header_texts:
-        # 这里简单打印，方便观察，真实调试中可放到相似度计算函数里
-        if not h_text or h_text.strip() == "":
-            print(f"异常表头文本为空: '{h_text}'")
-
-    print("==== 调试结束 ====")
-
-# 调用这个调试函数
-if __name__ == "__main__":
-    debug_data()
-
+from chatglm3 import generate_with_chatglm3 as generate_with_llm
 
 
 # 初始化OpenAI客户端
-client = OpenAI(
-    base_url="http://172.16.55.171:7010/v1",
-    api_key="sk-cairi"
-)
+# client = OpenAI(
+#     base_url="http://172.16.55.171:7010/v1",
+#     #base_url="http://10.0.1.194:7010/v1",
+#     api_key="sk-cairi"
+# )
 
 # 配置参数
 CONFIG = {
@@ -147,30 +105,43 @@ def process_standard_data() -> List[str]:
 
     return terms
 
-def generate_with_llm(prompt: str) -> str:
-    try:
-        response = client.chat.completions.create(
-            model=CONFIG["llm_model"],
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=100
-        )
 
-        if not response or not response.choices:
-            print("⚠️ LLM响应为空或无choices")
-            return "[默认回复]"
-
-        message = response.choices[0].message
-        if not message or not message.content:
-            print(f"⚠️ LLM响应中 message.content 为空：{response}")
-            return "[默认回复]"
-
-        return message.content.strip()
-
-    except Exception as e:
-        print(f"⚠️ LLM调用失败：{e}")
-        return "[默认回复]"
-
+# def generate_with_llm(prompt: str) -> str:
+#     try:
+#         response = client.chat.completions.create(
+#             model=CONFIG["llm_model"],
+#             messages=[{"role": "user", "content": prompt}],
+#             temperature=0,
+#             presence_penalty=1.5,
+#             extra_body={
+#                 "min_p": 0,
+#             },
+#
+#         )
+#
+#         message_obj = response.choices[0].message
+#
+#         # 提取 LLM 返回内容（兼容 CAIRI 的 reasoning_content 字段）
+#         raw_content = None
+#         if hasattr(message_obj, "content") and message_obj.content:
+#             raw_content = message_obj.content.strip()
+#         elif hasattr(message_obj, "reasoning_content") and message_obj.reasoning_content:
+#             raw_content = message_obj.reasoning_content.strip()
+#         else:
+#             raw_content = ""
+#
+#         # 提取编号 1~4
+#         match = re.search(r'\b([1-4])\b', raw_content)
+#         if match:
+#             llm_choice = match.group(1)
+#         else:
+#             llm_choice = ""
+#
+#         return llm_choice
+#
+#     except Exception as e:
+#         print(f"⚠️ LLM调用失败：{e}")
+#         return ""
 
 def detect_similarity_method(func):
     def wrapper(*args, **kwargs):
@@ -184,38 +155,10 @@ def detect_similarity_method(func):
         return func(*args, **kwargs)
     return wrapper
 
-# #余弦
-# @detect_similarity_method
-# def calculate_similarities_cosine() -> List[Dict]:
-#     header_vectors = np.load(CONFIG["header_vectors"])
-#     standard_vectors = np.load(CONFIG["standard_vectors"])
-#     header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].tolist()
-#     standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].tolist()
-#
-#     results = []
-#     for h_text, h_vec in zip(header_texts, header_vectors):
-#         sim_scores = cosine_similarity([h_vec], standard_vectors)[0]
-#         top_3_indices = np.argsort(sim_scores)[-3:][::-1]
-#         top_3 = [standard_texts[i] for i in top_3_indices]
-#         top_scores = [sim_scores[i] for i in top_3_indices]
-#
-#         prompt = f"""请根据病历表头选择最匹配的标准术语：
-# 原始表头：{h_text}
-# 候选术语：
-# {chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
-#
-# 只需返回选择的编号(1-3)，不要解释。"""
-#
-#         llm_choice = generate_with_llm(prompt)
-#         results.append({
-#             "原始表头": h_text,
-#             "候选术语": top_3,
-#             "LLM选择": top_3[int(llm_choice) - 1] if llm_choice.isdigit() else "N/A",
-#             "最高相似度": top_scores[0],
-#             "平均相似度": np.mean(top_scores)
-#         })
-#     return results
-
+# =========================
+# ⚙️ 阈值配置（相似度阈值）
+# =========================
+threshold_ratio = 0.85
 #bm25
 @detect_similarity_method
 def calculate_similarities_bm25() -> List[Dict]:
@@ -226,6 +169,7 @@ def calculate_similarities_bm25() -> List[Dict]:
     bm25 = BM25Okapi(tokenized_corpus)
 
     results = []
+
     for h_text in header_texts:
         query = list(jieba.cut(h_text))
         scores = bm25.get_scores(query)
@@ -233,40 +177,110 @@ def calculate_similarities_bm25() -> List[Dict]:
         top_3 = [standard_texts[i] for i in top_3_indices]
         top_scores = [scores[i] for i in top_3_indices]
 
-        prompt = f"""请根据病历表头选择最匹配的标准术语：
-原始表头：{h_text}
+        # 判断是否低于阈值
+        if top_scores[0] < max(scores) * threshold_ratio:
+            llm_choice_result = ""  # 不调用LLM，直接空字符串
+        else:
+            prompt = f"""
+你是一个专业的医疗数据助手。请根据给定的原始字段，选择最符合含义的标准术语候选项。
+
+请注意：
+- 候选术语中仅有一个最合适的；
+- 如果都不合适，请返回空值（不要选择）；
+- 只需返回对应的编号 1、2、3 或空字符串 ""，不要输出解释。
+
+原始字段（query）：{h_text}
 候选术语：
-{chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
+{chr(10).join(f"{i+1}. {text}" for i, text in enumerate(top_3))}
+"""
 
-只需返回选择的编号(1-3)，不要解释。"""
+            llm_choice = generate_with_llm(prompt)
+            if llm_choice.isdigit() and 1 <= int(llm_choice) <= 3:
+                llm_choice_result = top_3[int(llm_choice) - 1]
+            else:
+                llm_choice_result = ""
 
-        llm_choice = generate_with_llm(prompt)
         results.append({
             "原始表头": h_text,
             "候选术语": top_3,
-            "LLM选择": top_3[int(llm_choice) - 1] if llm_choice.isdigit() else "N/A",
+            "LLM选择": llm_choice_result,
             "最高相似度": top_scores[0],
-            "平均相似度": np.mean(top_scores)
+            "平均相似度": np.mean(top_scores),
+            "是否调用LLM": "是" if top_scores[0] >= max(scores) * threshold_ratio else "否"
         })
 
     return results
 
-#结果保存函数
+
+
+
 def save_results(results: List[Dict]):
     df = pd.DataFrame(results)
-    #如果 LLM 的选择在候选术语列表中排名第 1（即第一个候选），则判定匹配成功；
-    df['匹配成功'] = df.apply(lambda x: x['LLM选择'] in x['候选术语'][0], axis=1)
 
-    os.makedirs(CONFIG["output_dir"], exist_ok=True)
+    # 删除不需要的列
+    df.drop(columns=[col for col in ["平均相似度", "匹配成功"] if col in df.columns], inplace=True)
 
-    # 构造动态文件名
-    from datetime import datetime
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    filename = f"匹配结果对比-{CONFIG['embedding_model']}_{CONFIG['similarity_method']}_{timestamp}.xlsx"
-    output_path = os.path.join(CONFIG["output_dir"], filename)
+    # 加载 GT 标准答案（跳过表头）
+    gt_path = "/home/gzy/rag-biomap/dataset/GT.xlsx"
+    gt_df = pd.read_excel(gt_path, header=0)
 
-    df.to_excel(output_path, index=False, engine='openpyxl')
-    print(f"✅ 结果已保存到 {output_path}，共 {len(df)} 条记录")
+    if gt_df.shape[1] < 2:
+        raise ValueError("GT.xlsx 必须至少包含两列，第二列为标准答案")
+
+    gt_answers = gt_df.iloc[:, 1].fillna("").astype(str).tolist()
+    df["GT标准答案"] = pd.Series(gt_answers[:len(df)])
+
+    # 匹配判断
+    df["是否匹配GT"] = df.apply(lambda row: row["LLM选择"].strip() == row["GT标准答案"].strip(), axis=1)
+
+    # 统计信息
+    total_accuracy = df["是否匹配GT"].mean()
+    gt_empty_count = sum(df["GT标准答案"] == "")
+    llm_empty = df["LLM选择"] == ""
+    gt_empty = df["GT标准答案"] == ""
+    llm_not_empty = df["LLM选择"] != ""
+
+    llm_empty_and_gt_empty = df[llm_empty & gt_empty].shape[0]
+    llm_empty_total = llm_empty.sum()
+    llm_not_empty_total = llm_not_empty.sum()
+    llm_not_empty_gt_empty = df[llm_not_empty & gt_empty].shape[0]
+    llm_empty_gt_not_empty = df[llm_empty & ~gt_empty].shape[0]
+
+    # 创建统计信息DataFrame
+    stats_data = {
+        "统计指标": [
+            "llm选择与GT标准答案匹配准确率",
+            "GT标准答案中空值个数",
+            "llm选择为空，GT也为空的匹配成功数量",
+            "llm选择为空的数量",
+            "llm选择非空的数量",
+            "llm选择非空，但GT是空的数量",
+            "llm选择为空，GT不为空的数量"
+        ],
+        "数值": [
+            total_accuracy,
+            gt_empty_count,
+            llm_empty_and_gt_empty,
+            llm_empty_total,
+            llm_not_empty_total,
+            llm_not_empty_gt_empty,
+            llm_empty_gt_not_empty
+        ]
+    }
+    stats_df = pd.DataFrame(stats_data)
+
+    # 将统计信息写入Excel的第12-15列（L-O列）
+    with pd.ExcelWriter(os.path.join(CONFIG["output_dir"], "阈值设置85%.xlsx"), engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name="匹配结果", index=False)
+        stats_df.to_excel(writer, sheet_name="匹配结果", startcol=11, startrow=1, index=False, header=False)
+
+    # 控制台输出（辅助确认）
+    print(f"✅ 结果已保存到 {os.path.join(CONFIG['output_dir'], '阈值设置85%.xlsx')}")
+    print(f"📊 匹配准确率：{total_accuracy:.6f}")
+    print(f"📊 GT为空值：{gt_empty_count}，llm选择为空数量：{llm_empty_total}")
+    print(f"📊 llm选择为空 && GT为空（匹配）：{llm_empty_and_gt_empty}")
+    print(f"📊 llm选择非空 && GT为空：{llm_not_empty_gt_empty}")
+    print(f"📊 llm选择为空 && GT非空：{llm_empty_gt_not_empty}")
 
 
 
