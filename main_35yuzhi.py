@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import argparse
 import pandas as pd
 import numpy as np
@@ -160,27 +161,103 @@ def process_standard_data() -> List[str]:
 #         return "[默认回复]"
 
 
+# def generate_with_llm(prompt: str) -> str:
+#     try:
+#         response = client.chat.completions.create(
+#             model="CAIRI-LLM-reasoner",
+#             messages=[{"role": "user", "content": prompt}],
+#             temperature=0.1,
+#             max_tokens=100
+#         )
+#
+#         message_obj = response.choices[0].message
+#         # 优先读取 content，如果没有就读取 reasoning_content
+#         if message_obj.content:
+#             return message_obj.content.strip()
+#         elif hasattr(message_obj, "reasoning_content") and message_obj.reasoning_content:
+#             return message_obj.reasoning_content.strip()
+#         else:
+#             return "[空响应]"
+#     except Exception as e:
+#         print(f"⚠️ LLM调用失败：{e}")
+#         return "[默认回复]"
+
+
+
+# def generate_with_llm(prompt: str) -> str:
+#     try:
+#         response = client.chat.completions.create(
+#             model=CONFIG["llm_model"],
+#             messages=[{"role": "user", "content": prompt}],
+#             temperature=0.1,
+#             max_tokens=100
+#         )
+#
+#         message_obj = response.choices[0].message
+#         raw_content = message_obj.content.strip() if message_obj.content else ""
+#         return raw_content
+#     except Exception as e:
+#         print(f"⚠️ LLM调用失败：{e}")
+#         return "[调用失败]"
+
+# def generate_with_llm(prompt: str) -> str:
+#     try:
+#         response = client.chat.completions.create(
+#             model=CONFIG["llm_model"],
+#             messages=[{"role": "user", "content": prompt}],
+#             temperature=0.1,
+#             max_tokens=100
+#         )
+#
+#         # 打印完整响应结构！
+#         print("📦 LLM完整响应结构：")
+#         print(response)
+#
+#         message_obj = response.choices[0].message
+#         raw_content = message_obj.content.strip() if message_obj.content else ""
+#         return raw_content
+#     except Exception as e:
+#         print(f"⚠️ LLM调用失败：{e}")
+#         return "[调用失败]"
+
+
 def generate_with_llm(prompt: str) -> str:
     try:
         response = client.chat.completions.create(
-            model="CAIRI-LLM-reasoner",
+            model=CONFIG["llm_model"],
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=100
         )
 
         message_obj = response.choices[0].message
-        # 优先读取 content，如果没有就读取 reasoning_content
-        if message_obj.content:
-            return message_obj.content.strip()
+
+        # 提取 LLM 返回内容（兼容 CAIRI 的 reasoning_content 字段）
+        raw_content = None
+        if hasattr(message_obj, "content") and message_obj.content:
+            raw_content = message_obj.content.strip()
         elif hasattr(message_obj, "reasoning_content") and message_obj.reasoning_content:
-            return message_obj.reasoning_content.strip()
+            raw_content = message_obj.reasoning_content.strip()
         else:
-            return "[空响应]"
+            raw_content = ""
+
+        print(f"📨 表头：{prompt.split('原始表头：')[-1].splitlines()[0]}")
+        print(f"🎯 LLM原始返回：'{raw_content}'")
+        print(f"📦 LLM完整响应结构：\n{response}")
+        print("📝 ========= LLM 调用记录 =========")
+
+        # 提取编号 1~4
+        match = re.search(r'\b([1-4])\b', raw_content)
+        if match:
+            llm_choice = match.group(1)
+        else:
+            llm_choice = "N/A"
+
+        return llm_choice
+
     except Exception as e:
         print(f"⚠️ LLM调用失败：{e}")
-        return "[默认回复]"
-
+        return "N/A"
 
 
 def detect_similarity_method(func):
@@ -220,23 +297,53 @@ def calculate_similarities_bm25() -> List[Dict]:
         top_3 = [standard_texts[i] for i in top_3_indices]
         top_scores = [scores[i] for i in top_3_indices]
 
+        # # 判断是否低于阈值
+        # if top_scores[0] < max(scores) * threshold_ratio:
+        #     llm_choice_result = ""  # 不调用LLM，直接空字符串
+        # else:
+        #     prompt = f"""请根据病历表头选择最匹配的标准术语（如果没有合适的请选4）：
+        #     原始表头：{h_text}
+        #     候选术语：
+        #     {chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
+        #     4. 无一个候选项匹配
+        #
+        #     请只返回选择的编号(1-4)，不要解释。"""
+        #
+        #     llm_choice = generate_with_llm(prompt)
+        #     if llm_choice.isdigit() and 1 <= int(llm_choice) <= 3:
+        #         llm_choice_result = top_3[int(llm_choice) - 1]
+        #     elif llm_choice.strip() == "4":
+        #         llm_choice_result = ""
+        #     else:
+        #         llm_choice_result = "N/A"
+
         # 判断是否低于阈值
         if top_scores[0] < max(scores) * threshold_ratio:
             llm_choice_result = ""  # 不调用LLM，直接空字符串
         else:
             prompt = f"""请根据病历表头选择最匹配的标准术语（如果没有合适的请选4）：
-            原始表头：{h_text}
-            候选术语：
-            {chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
-            4. 无一个候选项匹配
+        原始表头：{h_text}
+        候选术语：
+        {chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
+        4. 无一个候选项匹配
 
-            请只返回选择的编号(1-4)，不要解释。"""
+        请只返回选择的编号(1-4)，不要解释。"""
 
             llm_choice = generate_with_llm(prompt)
-            if llm_choice.isdigit() and 1 <= int(llm_choice) <= 3:
-                llm_choice_result = top_3[int(llm_choice) - 1]
-            elif llm_choice.strip() == "4":
-                llm_choice_result = ""
+
+            # 🐞 调试输出
+            print("📝 ========= LLM 调用记录 =========")
+            print(f"📨 表头：{h_text}")
+            print(f"🎯 LLM原始返回：'{llm_choice}'")
+
+            # 正则提取 1-4 的编号
+            match = re.search(r"\b([1-4])\b", llm_choice)
+            if match:
+                choice_num = int(match.group(1))
+                if choice_num == 4:
+                    llm_choice_result = ""
+                else:
+                    llm_choice_result = top_3[choice_num - 1]
             else:
                 llm_choice_result = "N/A"
 
