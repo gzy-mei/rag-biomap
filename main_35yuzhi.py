@@ -69,6 +69,7 @@ client = OpenAI(
 
 # 配置参数
 CONFIG = {
+    "llm_model": "CAIRI-LLM-reasoner",
     "non_standard_excel": "dataset/导出数据第1~1000条数据_病案首页-.xlsx",
     "standard_excel": "dataset/VTE-PTE-CTEPH研究数据库.xlsx",
     "header_csv": "data_description/test/header_row.csv",
@@ -145,18 +146,42 @@ def process_standard_data() -> List[str]:
 
     return terms
 
+# def generate_with_llm(prompt: str) -> str:
+#     try:
+#         response = client.chat.completions.create(
+#             model=CONFIG["llm_model"],
+#             messages=[{"role": "user", "content": prompt}],
+#             temperature=0.1,
+#             max_tokens=100
+#         )
+#         return response.choices[0].message.content.strip()
+#     except Exception as e:
+#         print(f"⚠️ LLM调用失败：{e}")
+#         return "[默认回复]"
+
+
 def generate_with_llm(prompt: str) -> str:
     try:
         response = client.chat.completions.create(
-            model="CAIRI-LLM",
+            model="CAIRI-LLM-reasoner",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=100
         )
-        return response.choices[0].message.content.strip()
+
+        message_obj = response.choices[0].message
+        # 优先读取 content，如果没有就读取 reasoning_content
+        if message_obj.content:
+            return message_obj.content.strip()
+        elif hasattr(message_obj, "reasoning_content") and message_obj.reasoning_content:
+            return message_obj.reasoning_content.strip()
+        else:
+            return "[空响应]"
     except Exception as e:
         print(f"⚠️ LLM调用失败：{e}")
         return "[默认回复]"
+
+
 
 def detect_similarity_method(func):
     def wrapper(*args, **kwargs):
@@ -173,8 +198,8 @@ def detect_similarity_method(func):
 # =========================
 # ⚙️ 阈值配置（相似度阈值）
 # =========================
-threshold = 5.8115949168632
-print(f"📉 阈值过滤：相似度低于 {threshold} 的将不会调用 LLM")
+threshold_ratio = 0.35  # 表示相似度最高得分的35%
+
 
 #bm25
 @detect_similarity_method
@@ -196,19 +221,22 @@ def calculate_similarities_bm25() -> List[Dict]:
         top_scores = [scores[i] for i in top_3_indices]
 
         # 判断是否低于阈值
-        if top_scores[0] < threshold:
+        if top_scores[0] < max(scores) * threshold_ratio:
             llm_choice_result = ""  # 不调用LLM，直接空字符串
         else:
-            prompt = f"""请根据病历表头选择最匹配的标准术语：
-原始表头：{h_text}
-候选术语：
-{chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
+            prompt = f"""请根据病历表头选择最匹配的标准术语（如果没有合适的请选4）：
+            原始表头：{h_text}
+            候选术语：
+            {chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
+            4. 无一个候选项匹配
 
-只需返回选择的编号(1-3)，不要解释。"""
+            请只返回选择的编号(1-4)，不要解释。"""
 
             llm_choice = generate_with_llm(prompt)
             if llm_choice.isdigit() and 1 <= int(llm_choice) <= 3:
                 llm_choice_result = top_3[int(llm_choice) - 1]
+            elif llm_choice.strip() == "4":
+                llm_choice_result = ""
             else:
                 llm_choice_result = "N/A"
 
@@ -227,42 +255,68 @@ def calculate_similarities_bm25() -> List[Dict]:
 def save_results(results: List[Dict]):
     df = pd.DataFrame(results)
 
-    # 去掉“平均相似度”列（如果存在）
-    if "平均相似度" in df.columns:
-        df.drop(columns=["平均相似度"], inplace=True)
+    # 删除不需要的列
+    df.drop(columns=[col for col in ["平均相似度", "匹配成功"] if col in df.columns], inplace=True)
 
-    # 加载 GT 标准答案（跳过表头，使用 header=0）
+    # 加载 GT 标准答案（跳过表头）
     gt_path = "/home/gzy/rag-biomap/dataset/GT.xlsx"
-    gt_df = pd.read_excel(gt_path, header=0)  # header=0 可跳过“正确答案”等表头
+    gt_df = pd.read_excel(gt_path, header=0)
 
     if gt_df.shape[1] < 2:
         raise ValueError("GT.xlsx 必须至少包含两列，第二列为标准答案")
 
-    # 获取 GT 答案（第2列），注意按实际数据行数对齐
     gt_answers = gt_df.iloc[:, 1].fillna("").astype(str).tolist()
     df["GT标准答案"] = pd.Series(gt_answers[:len(df)])
 
-    # 比较 LLM选择 与 GT标准答案 是否一致（空格也视为合法）
+    # 匹配判断
     df["是否匹配GT"] = df.apply(lambda row: row["LLM选择"] == row["GT标准答案"], axis=1)
 
-    # 匹配成功列（是否出现在候选术语 top1 中）
-    df["匹配成功"] = df.apply(lambda x: x["LLM选择"] in x["候选术语"][0], axis=1)
+    # 统计信息
+    total_accuracy = df["是否匹配GT"].mean()
+    gt_empty_count = sum(df["GT标准答案"] == "")
+    llm_empty = df["LLM选择"] == ""
+    gt_empty = df["GT标准答案"] == ""
+    llm_not_empty = df["LLM选择"] != ""
 
-    # 计算总体准确率（匹配GT的比例）
-    accuracy = df["是否匹配GT"].mean()
+    llm_empty_and_gt_empty = df[llm_empty & gt_empty].shape[0]
+    llm_empty_total = llm_empty.sum()
+    llm_not_empty_total = llm_not_empty.sum()
+    llm_not_empty_gt_empty = df[llm_not_empty & gt_empty].shape[0]
+    llm_empty_gt_not_empty = df[llm_empty & ~gt_empty].shape[0]
 
-    # 输出目录与路径
-    output_dir = "/home/gzy/rag-biomap/threshold_test/test/bm25"
+    # 删除“是否匹配GT”列，结果中不保留
+    df.drop(columns=["是否匹配GT"], inplace=True)
+
+    # 添加统计信息到 DataFrame 的尾部
+    stats = pd.DataFrame([
+        ["llm选择与GT标准答案匹配准确率", total_accuracy],
+        ["GT标准答案中空值个数", gt_empty_count],
+        ["llm选择为空，GT也为空的匹配成功数量", llm_empty_and_gt_empty],
+        ["llm选择为空的数量", llm_empty_total],
+        ["llm选择非空的数量", llm_not_empty_total],
+        ["llm选择非空，但GT是空的数量", llm_not_empty_gt_empty],
+        ["llm选择为空，GT不为空的数量", llm_empty_gt_not_empty]
+    ], columns=df.columns[:2])  # 用前两列对齐表头
+
+    df_final = pd.concat([df, stats], ignore_index=True)
+
+    # 保存路径
+    output_dir = "/home/gzy/rag-biomap/dataset/Matching_Results_Comparison"
     os.makedirs(output_dir, exist_ok=True)
-    filename = "当相似度小于58115949168632准确率最终版.xlsx"
+    filename = "阈值设置35.xlsx"
     output_path = os.path.join(output_dir, filename)
 
-    # 保存结果
-    df.to_excel(output_path, index=False, engine="openpyxl")
+    # 保存 Excel
+    df_final.to_excel(output_path, index=False, engine="openpyxl")
 
-    # ✅ 打印准确率（或者另存为单独文件）
-    print(f"✅ 结果已保存到 {output_path}，共 {len(df)} 条记录")
-    print(f"📊 LLM选择与GT标准答案匹配准确率为：{accuracy:.2%}")
+    # 控制台输出（辅助确认）
+    print(f"✅ 结果已保存到 {output_path}，共 {len(df)} 条记录 + 统计信息")
+    print(f"📊 匹配准确率：{total_accuracy:.6f}")
+    print(f"📊 GT为空值：{gt_empty_count}，llm选择为空数量：{llm_empty_total}")
+    print(f"📊 llm选择为空 && GT为空（匹配）：{llm_empty_and_gt_empty}")
+    print(f"📊 llm选择非空 && GT为空：{llm_not_empty_gt_empty}")
+    print(f"📊 llm选择为空 && GT非空：{llm_empty_gt_not_empty}")
+
 
 
 
