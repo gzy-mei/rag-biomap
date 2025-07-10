@@ -112,53 +112,71 @@ def detect_similarity_method(func):
         return func(*args, **kwargs)
     return wrapper
 
+# prompt_template = r"""
+# 你是一个专业的医疗领域数据对齐助手，擅长将非标准化的医疗字段名称映射到标准化的定义。
+# 你的任务是接收一个"原始表头“ （h_text）和一个"候选术语"列表（ top_3），然后从（ top_3）中找到与"原始表头“ （h_text）最匹配的字段名。
+# 请注意以下匹配规则：
+# 1. **完全匹配优先**：如果h_text与top_3中的某个字段名完全相同，则认为这是最完美的匹配。
+# 2. **忽略限定词或编号**：h_text中可能包含额外的限定词、页面层级信息或编号。在匹配时，请注意这些因为页面层级关系而带入的限定词和编号可以忽略，但是对于核心的一些限定词需要严格区分。例如，“出院其他诊断入院病情3”这个h_text中最前面的“出院”明显是这个页面层级叫“出院”，但是其中的“入院”是跟“病情”合在一起的，不能忽略，最后面的3可以理解为是页面中一个列表的编号，也可以忽略，所以它最终匹配到“其他诊断入院病情”。
+# 3. **模糊匹配**：如果不存在完全匹配，请进行语义上的模糊匹配，寻找最接近的含义。
+# 4. **无匹配处理**：如果你认为top_3中没有与h_text相匹配的字段，则对应的匹配字段设为N/A，分数设为0.0
+# 5. **置信度分数**：分数范围为(0, 1.0]，1.0表示完美匹配。
+# 请严格以JSON格式返回结果，包含 matched_field_name 和 score 两个字段。不要包含'''json和任何额外的解释、说明或报错信息。
+#
+# ---
+#
+# **输入示例**
+# **h_text:** "出院其他诊断入院病情3"
+# **top_3:** ["入院诊断",  "其他诊断入院病情", "入院病情"]
+# **输出示例**
+# {
+#   "matched_field_name": "其他诊断入院病情",
+#   "score": 0.95
+# }
+#
+# **输入示例**
+# **h_text:** "出院其他诊断出院情况4"
+# **top_3:** ["入院诊断", "主要诊断", "其他诊断"]
+# **输出示例**
+# {
+#   "matched_field_name": "N/A",
+#   "score": 0.0
+# }
+#
+# ---
+#
+# ## 任务 (Task)
+#
+# 请严格只返回如下 JSON 格式，不要包含任何其他内容：
+# {"matched_field_name": "...", "score": ...}
+#
+# * **输入:**
+# **h_text:**: {{h_text}}
+# **top_3:**: {{top_3}}
+#
+# * **返回:**请严格返回一段JSON 格式，如下所示（不加任何解释）：
+# {"matched_field_name": "...", "score": ...}
+# 禁止返回多个JSON，不允许带说明、注释、文字。
+#
+# """
 prompt_template = r"""
-你是一个专业的医疗领域数据对齐助手，擅长将非标准化的医疗字段名称映射到标准化的定义。
-你的任务是接收一个"原始表头“ （h_text）和一个"候选术语"列表（ top_3），然后从（ top_3）中找到与"原始表头“ （h_text）最匹配的字段名。
+你是医疗数据标准化助手。请从下列候选术语中，选择与给定原始表头最匹配的一个。
 
-请注意以下匹配规则：
-1. **完全匹配优先**：如果h_text与top_3中的某个字段名完全相同，则认为这是最完美的匹配。
-2. **忽略限定词或编号**：h_text中可能包含额外的限定词、页面层级信息或编号。在匹配时，请注意这些因为页面层级关系而带入的限定词和编号可以忽略，但是对于核心的一些限定词需要严格区分。例如，“出院其他诊断入院病情3”这个h_text中最前面的“出院”明显是这个页面层级叫“出院”，但是其中的“入院”是跟“病情”合在一起的，不能忽略，最后面的3可以理解为是页面中一个列表的编号，也可以忽略，所以它最终匹配到“其他诊断入院病情”。
-3. **模糊匹配**：如果不存在完全匹配，请进行语义上的模糊匹配，寻找最接近的含义。
-4. **无匹配处理**：如果你认为top_3中没有与h_text相匹配的字段，则对应的匹配字段设为N/A，分数设为0.0
-5. **置信度分数**：分数范围为(0, 1.0]，1.0表示完美匹配。
-请严格以JSON格式返回结果，包含 matched_field_name 和 score 两个字段。不要包含
-json和任何额外的解释、说明或报错信息。
+匹配规则：
+1. 完全一致优先；
+2. 忽略无意义词（如“出院”、“编号”、“3”等），但保留如“入院”“病情”；
+3. 若无合适匹配，返回 N/A 和 0.0 分；
+4. 分数为 (0, 1.0]，匹配越接近，分数越高；
 
----
-
-**输入示例**
-**h_text:** "出院其他诊断入院病情3"
-**top_3:** ["入院诊断",  "其他诊断入院病情", "入院病情"]
-**输出示例**
-{
-  "matched_field_name": "其他诊断入院病情",
-  "score": 0.95
-}
-
-**输入示例**
-**h_text:** "出院其他诊断出院情况4"
-**top_3:** ["入院诊断", "主要诊断", "其他诊断"]
-**输出示例**
-{
-  "matched_field_name": "N/A",
-  "score": 0.0
-}
+⚠️【输出要求】
+严格仅输出如下格式，不能有解释、代码块、换行或其它内容：
+{"matched_field_name": "xxx", "score": x.x}
 
 ---
 
-## 任务 (Task)
-
-请严格只返回如下 JSON 格式，不要包含任何其他内容：
-{"matched_field_name": "...", "score": ...}
-
-* **输入:**
-**h_text:**: {{h_text}}
-**top_3:**: {{top_3}}
-
-* **返回:**请严格返回 JSON 格式，如下所示（不加任何解释）：
-{"matched_field_name": "...", "score": ...}
-
+原始表头: {{h_text}}
+候选术语: {{top_3}}
+请输出：
 """
 
 
@@ -204,15 +222,20 @@ def generate_with_llm(prompt: str) -> str:
             raw_content = raw_content[:raw_content.rfind("}")+1]
 
         # ✅ 正则提取 JSON 主体
+        # ✅ 更严格的正则提取 JSON 主体，确保只提取一段
         try:
-            json_match = re.search(r"{.*}", raw_content.strip(), re.DOTALL)
-            if json_match:
-                raw_content = json_match.group(0)
-            else:
-                print("⚠️ 未能从 LLM 输出中提取到 JSON 字符串")
+            json_match = re.findall(r"\{.*?\}", raw_content.strip(), re.DOTALL)
+            if len(json_match) != 1:
+                print(f"⚠️ 返回了 {len(json_match)} 段 JSON，无法判断使用哪段")
                 print(f"Prompt：{prompt}")
                 print(f"原始返回内容：{raw_content}")
                 return "调用失败"
+
+            parsed = json.loads(json_match[0])
+            matched = parsed.get("matched_field_name", "")
+            if matched == "N/A":
+                return ""
+            return matched
 
             parsed = json.loads(raw_content)
             matched = parsed.get("matched_field_name", "")
@@ -221,6 +244,8 @@ def generate_with_llm(prompt: str) -> str:
             return matched
 
         except Exception as e:
+
+
             print("⚠️ JSON解析失败！")
             print(f"Prompt：{prompt}")
             print(f"返回原文：{raw_content}")

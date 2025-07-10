@@ -180,29 +180,13 @@ def generate_with_llm(prompt: str) -> str:
             raw_content = ""
 
         # ✅ 清理 LLM 输出中的 markdown JSON 包裹
-        if raw_content.startswith("
-json"):
-            raw_content = re.sub(r"^
-json", "", raw_content).strip()
-            raw_content = re.sub(r"
-$", "", raw_content).strip()
-        elif raw_content.startswith("
-"):
-            raw_content = re.sub(r"^
-", "", raw_content).strip()
-            raw_content = re.sub(r"
-$", "", raw_content).strip()
-
-        # # 解析 JSON 返回
-        # try:
-        #     parsed = json.loads(raw_content)
-        #     matched = parsed.get("matched_field_name", "")
-        #     if matched == "N/A":
-        #         return ""
-        #     return matched
-        # except Exception as e:
-        #     print(f"⚠️ JSON解析失败：{e}，原始返回：{raw_content}")
-        #     return "调用失败"
+            # ✅ 清理 LLM 输出中的 markdown JSON 包裹
+            if raw_content.startswith("```json"):
+                raw_content = re.sub(r"^```json", "", raw_content).strip()
+                raw_content = re.sub(r"```$", "", raw_content).strip()
+            elif raw_content.startswith("```"):
+                raw_content = re.sub(r"^```", "", raw_content).strip()
+                raw_content = re.sub(r"```$", "", raw_content).strip()
 
         try:
             # 提取 JSON 内容
