@@ -178,17 +178,18 @@ def calculate_similarities_bm25() -> List[Dict]:
         top_3_indices = np.argsort(scores)[-3:][::-1]
         top_3 = [standard_texts[i] for i in top_3_indices]
         top_scores = [scores[i] for i in top_3_indices]
+        true_max_score = max(scores)
 
-        if top_scores[0] < max(scores) * threshold_ratio:
+        if true_max_score == 0 or top_scores[0] < true_max_score * threshold_ratio:
             llm_choice_result = ""
             called_llm = "否"
         else:
             prompt = f"""请根据病历表头选择最匹配的标准术语：
-原始表头：{h_text}
-候选术语：
-{chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
+    原始表头：{h_text}
+    候选术语：
+    {chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
 
-只需返回选择的编号(1-3)，不要解释。"""
+    只需返回选择的编号(1-3)，不要解释。"""
             llm_choice = generate_with_llm(prompt)
             if llm_choice.isdigit() and 1 <= int(llm_choice) <= 3:
                 llm_choice_result = top_3[int(llm_choice) - 1]
@@ -200,8 +201,8 @@ def calculate_similarities_bm25() -> List[Dict]:
             "原始表头": h_text,
             "候选术语": top_3,
             "LLM选择": llm_choice_result,
-            "最高相似度": top_scores[0],
-            "平均相似度": np.mean(top_scores),
+            "最高相似度": round(top_scores[0], 4),
+            "最高分相对比例": round(top_scores[0] / true_max_score, 4) if true_max_score != 0 else 0,
             "是否调用LLM": called_llm
         }
 
