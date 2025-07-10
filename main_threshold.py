@@ -202,7 +202,7 @@ def calculate_similarities_bm25() -> List[Dict]:
             "候选术语": top_3,
             "LLM选择": llm_choice_result,
             "最高相似度": round(top_scores[0], 4),
-            "最高分相对比例": round(top_scores[0] / true_max_score, 4) if true_max_score != 0 else 0,
+            "最高分相对比例（当前/max）": round(top_scores[0] / max(scores), 4) if max(scores) != 0 else 0,
             "是否调用LLM": called_llm
         }
 
@@ -217,7 +217,7 @@ def calculate_similarities_bm25() -> List[Dict]:
     # 按原始顺序初始化空列表
     results = [None] * len(header_texts)
 
-    with ThreadPoolExecutor(max_workers=18) as executor:
+    with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {
             executor.submit(process_single_header_with_index, idx, h_text): idx
             for idx, h_text in enumerate(header_texts)
@@ -237,6 +237,7 @@ def calculate_similarities_bm25() -> List[Dict]:
 
 def save_results(results: List[Dict]):
     df = pd.DataFrame(results)
+    print("保存前的列名：", df.columns.tolist())
 
     # 删除不需要的列
     df.drop(columns=[col for col in ["平均相似度", "匹配成功"] if col in df.columns], inplace=True)
