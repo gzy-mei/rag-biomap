@@ -7,13 +7,7 @@ import os
 #from embedding_model.model.mxbai_embed_large import get_embedding
 from embedding_model.model.bge_m3 import get_embedding
 
-"""def get_embedding(text, model='nomic-embed-text', server_url='http://localhost:11434/api/embeddings'):
-    response = requests.post(server_url, json={
-        'model': model,
-        'prompt': text
-    })
-    response.raise_for_status()
-    return response.json()['embedding']"""
+
 
 def vectorize_header_terms(csv_path, save_path_npy, failed_log_path=None):
     df = pd.read_csv(csv_path, header=None)

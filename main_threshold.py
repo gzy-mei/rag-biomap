@@ -17,7 +17,7 @@ from Build_an_index.invoke_Non_standard_data_Build_index import vectorize_header
 #计算向量相似度
 from sklearn.metrics.pairwise import cosine_similarity
 from rank_bm25 import BM25Okapi
-
+from tqdm import tqdm
 
 # 初始化OpenAI客户端
 client = OpenAI(
@@ -206,26 +206,33 @@ def calculate_similarities_bm25() -> List[Dict]:
         }
 
     # 多线程执行（线程池）
-    with ThreadPoolExecutor(max_workers=18) as executor:
-        future_to_header = {executor.submit(process_single_header, h): h for h in header_texts}
-        from tqdm import tqdm  # 确保在顶部 import 了 tqdm
+    # 多线程执行（线程池），保证结果顺序一致
+    from tqdm import tqdm  # 确保 tqdm 已 import
 
-        # 带进度条的多线程处理
+    def process_single_header_with_index(index, h_text):
+        result = process_single_header(h_text)
+        return index, result
+
+    # 按原始顺序初始化空列表
+    results = [None] * len(header_texts)
+
+    with ThreadPoolExecutor(max_workers=18) as executor:
+        futures = {
+            executor.submit(process_single_header_with_index, idx, h_text): idx
+            for idx, h_text in enumerate(header_texts)
+        }
+
         with tqdm(total=len(header_texts), desc="🧠 LLM匹配中", ncols=80) as pbar:
-            for future in as_completed(future_to_header):
+            for future in as_completed(futures):
                 try:
-                    result = future.result()
-                    results.append(result)
+                    idx, result = future.result()
+                    results[idx] = result
                 except Exception as e:
-                    print(f"⚠️ 表头处理失败: {e}")
+                    print(f"⚠️ 表头处理失败（index={idx}）: {e}")
                 finally:
                     pbar.update(1)
 
     return results
-
-
-
-
 
 def save_results(results: List[Dict]):
     df = pd.DataFrame(results)
