@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import jieba
 import tqdm
+import json
 from openai import OpenAI
 from typing import List, Dict
 #进行数据集处理
@@ -17,7 +18,10 @@ from Build_an_index.invoke_Non_standard_data_Build_index import vectorize_header
 #计算向量相似度
 from sklearn.metrics.pairwise import cosine_similarity
 from rank_bm25 import BM25Okapi
+#进度条展示
 from tqdm import tqdm
+# 用于实现多线程并发处理。
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 初始化OpenAI客户端
 client = OpenAI(
@@ -36,12 +40,8 @@ CONFIG = {
     "header_vectors": "Build_an_index/test/header_terms.npy",
     "standard_vectors": "Build_an_index/test/standard_terms.npy",
     "output_excel": "dataset/匹配结果对比.xlsx",
-    #"embedding_model": "nomic-embed-text",  # 修改为当前使用的嵌入模型名：bge-m3、nomic-embed-text、mxbai-embed-large还需要再调用函数中修改！！！
-    #"similarity_method": "BM25",  # 相似度方法，有：BM25，Cosine
     "output_dir": "dataset/Matching_Results_Comparison"
-
 }
-
 
 #初始化目录结构： 根据配置文件CONFIG中的路径，自动创建这些路径所在的文件夹目录（如果目录不存在滴话）
 def initialize_directories():
@@ -55,7 +55,6 @@ def process_non_standard_data() -> List[str]:
     #结果生成：data_description/test/header_row.csv
     if not extract_first_row_to_csv(CONFIG["non_standard_excel"], CONFIG["header_csv"]):
         raise RuntimeError("非标准数据处理失败")
-
     # 调用封装好的向量化函数
     #from Build_an_index.invoke_Non_standard_data_Build_index import vectorize_header_terms
     #结果生成：Build_an_index/test/header_terms.npy
@@ -64,7 +63,6 @@ def process_non_standard_data() -> List[str]:
         CONFIG["header_vectors"],
         failed_log_path="Build_an_index/test/header_terms_failed.csv"
     )
-
     # 返回所有文本列表
     return pd.read_csv(CONFIG["header_csv"], header=None)[0].tolist()
 
@@ -84,15 +82,12 @@ def process_standard_data() -> List[str]:
     )
     if not success:
         raise RuntimeError("标准术语提取失败")
-
     # 加载CSV并提取术语（即“内容”列-不会包含“内容”这两个字。）
     df = pd.read_csv(CONFIG["standard_terms_csv"])
     if "内容" not in df.columns:
         raise ValueError("标准术语CSV缺少 '内容' 列")
-
     terms = df["内容"].dropna().astype(str).tolist()
     print(f"✅ 成功加载标准术语，共 {len(terms)} 条")
-
     # 向量化“内容”列
     #结果生成：Build_an_index/test/standard_terms.npy
     #from Build_an_index.invoke_Build_index import get_embedding, build_index_from_csv
@@ -102,46 +97,8 @@ def process_standard_data() -> List[str]:
         column_index=2,                   # “内容”列在CSV中的位置
         verbose=False
     )
-
     return terms
 
-
-def generate_with_llm(prompt: str) -> str:
-    try:
-        response = client.chat.completions.create(
-            model=CONFIG["llm_model"],
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,
-            presence_penalty=1.5,
-            extra_body={
-                "min_p": 0,
-            },
-
-        )
-
-        message_obj = response.choices[0].message
-
-        # 提取 LLM 返回内容（兼容 CAIRI 的 reasoning_content 字段）
-        raw_content = None
-        if hasattr(message_obj, "content") and message_obj.content:
-            raw_content = message_obj.content.strip()
-        elif hasattr(message_obj, "reasoning_content") and message_obj.reasoning_content:
-            raw_content = message_obj.reasoning_content.strip()
-        else:
-            raw_content = ""
-
-        # 提取编号 1~4
-        match = re.search(r'\b([1-4])\b', raw_content)
-        if match:
-            llm_choice = match.group(1)
-        else:
-            llm_choice = ""
-
-        return llm_choice
-
-    except Exception as e:
-        print(f"⚠️ LLM调用失败：{e}")
-        return ""
 
 def detect_similarity_method(func):
     def wrapper(*args, **kwargs):
@@ -155,64 +112,130 @@ def detect_similarity_method(func):
         return func(*args, **kwargs)
     return wrapper
 
-# =========================
-# ⚙️ 阈值配置（相似度阈值）
-# =========================
-threshold_ratio = 0.85
-#bm25
-from concurrent.futures import ThreadPoolExecutor, as_completed
+prompt_template = r"""
+你是一个专业的医疗领域数据对齐助手，擅长将非标准化的医疗字段名称映射到标准化的定义。
+你的任务是接收一个"原始表头“ （h_text）和一个"候选术语"列表（ top_3），然后从（ top_3）中找到与"原始表头“ （h_text）最匹配的字段名。
 
+请注意以下匹配规则：
+1. **完全匹配优先**：如果h_text与top_3中的某个字段名完全相同，则认为这是最完美的匹配。
+2. **忽略限定词或编号**：h_text中可能包含额外的限定词、页面层级信息或编号。在匹配时，请注意这些因为页面层级关系而带入的限定词和编号可以忽略，但是对于核心的一些限定词需要严格区分。例如，“出院其他诊断入院病情3”这个h_text中最前面的“出院”明显是这个页面层级叫“出院”，但是其中的“入院”是跟“病情”合在一起的，不能忽略，最后面的3可以理解为是页面中一个列表的编号，也可以忽略，所以它最终匹配到“其他诊断入院病情”。
+3. **模糊匹配**：如果不存在完全匹配，请进行语义上的模糊匹配，寻找最接近的含义。
+4. **无匹配处理**：如果你认为top_3中没有与h_text相匹配的字段，则对应的匹配字段设为N/A，分数设为0.0
+5. **置信度分数**：分数范围为(0, 1.0]，1.0表示完美匹配。
+请严格以JSON格式返回结果，包含 `matched_field_name` 和 `score` 两个字段。不要包含```json和任何额外的解释、说明或报错信息。
+
+---
+
+**输入示例**
+**h_text:** "出院其他诊断入院病情3"
+**top_3:** ["入院诊断",  "其他诊断入院病情", "入院病情"]
+**输出示例**
+{
+  "matched_field_name": "其他诊断入院病情",
+  "score": 0.95
+}
+
+**输入示例**
+**h_text:** "出院其他诊断出院情况4"
+**top_3:** ["入院诊断", "主要诊断", "其他诊断"]
+**输出示例**
+{
+  "matched_field_name": "N/A",
+  "score": 0.0
+}
+
+---
+
+## 任务 (Task)
+
+现在，请根据以上规则和示例，处理以下输入：
+
+* **输入:**
+**h_text:**: {{h_text}}
+**top_3:**: {{top_3}}
+
+* **返回:**
+
+"""
+
+def generate_with_llm(prompt: str) -> str:
+    try:
+        response = client.chat.completions.create(
+            model=CONFIG["llm_model"],
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            presence_penalty=1.5,
+            extra_body={"min_p": 0},
+        )
+        message_obj = response.choices[0].message
+        raw_content = None
+        if hasattr(message_obj, "content") and message_obj.content:
+            raw_content = message_obj.content.strip()
+        elif hasattr(message_obj, "reasoning_content") and message_obj.reasoning_content:
+            raw_content = message_obj.reasoning_content.strip()
+        else:
+            raw_content = ""
+
+        # 解析 JSON 返回
+        try:
+            parsed = json.loads(raw_content)
+            matched = parsed.get("matched_field_name", "")
+            if matched == "N/A":
+                return ""
+            return matched  # 返回字段名
+        except Exception as e:
+            print(f"⚠️ JSON解析失败：{e}，原始返回：{raw_content}")
+            return "调用失败"
+
+    except Exception as e:
+        print(f"⚠️ LLM调用失败：{e}")
+        return "调用失败"
+threshold_ratio = 0.85
 @detect_similarity_method
 def calculate_similarities_bm25() -> List[Dict]:
     header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
     standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].dropna().astype(str).tolist()
-
     tokenized_corpus = [list(jieba.cut(text)) for text in standard_texts]
     bm25 = BM25Okapi(tokenized_corpus)
-
     results = []
 
     def process_single_header(h_text: str) -> Dict:
         query = list(jieba.cut(h_text))
         scores = bm25.get_scores(query)
-        max_global_score = max(scores)  # ✅ 全局最高相似度
-
+        max_global_score = 19.2302  #max(scores) ✅ 全局最大值手动设置
         top_3_indices = np.argsort(scores)[-3:][::-1]
         top_3 = [standard_texts[i] for i in top_3_indices]
         top_scores = [scores[i] for i in top_3_indices]
-
-        top_score = top_scores[0]  # top3中得分最高者
+        top_score = top_scores[0]
 
         if top_score < max_global_score * threshold_ratio:
-            llm_choice_result = ""
-            called_llm = "否"
+            return {
+                "原始表头": h_text,
+                "候选术语": top_3,
+                "LLM选择": "",  # 不调用LLM
+                "最高相似度": round(top_score, 4),
+                "最高分相对比例（当前/max）": round(top_score / max_global_score, 4) if max_global_score != 0 else 0,
+                "是否调用LLM": "否"
+            }
         else:
-            prompt = f"""请根据病历表头选择最匹配的标准术语：
-    原始表头：{h_text}
-    候选术语：
-    {chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
+            prompt = prompt_template.replace("{{h_text}}", h_text).replace("{{top_3}}",
+                                                                           json.dumps(top_3, ensure_ascii=False))
+            llm_choice_result = generate_with_llm(prompt)
 
-    只需返回选择的编号(1-3)，不要解释。"""
-            llm_choice = generate_with_llm(prompt)
-            if llm_choice.isdigit() and 1 <= int(llm_choice) <= 3:
-                llm_choice_result = top_3[int(llm_choice) - 1]
+            # 判断是否调用成功并返回值
+            if llm_choice_result == "调用失败":
+                final_choice = "调用失败"
             else:
-                llm_choice_result = ""
-            called_llm = "是"
+                final_choice = llm_choice_result.strip()
 
-        return {
-            "原始表头": h_text,
-            "候选术语": top_3,
-            "LLM选择": llm_choice_result,
-            "最高相似度": round(top_score, 4),
-            "最高分相对比例（当前/max）": round(top_score / max_global_score, 4) if max_global_score != 0 else 0,
-            "是否调用LLM": called_llm
-        }
-
-    # 多线程执行（线程池）
-    # 多线程执行（线程池），保证结果顺序一致
-    from tqdm import tqdm  # 确保 tqdm 已 import
-
+            return {
+                "原始表头": h_text,
+                "候选术语": top_3,
+                "LLM选择": final_choice,
+                "最高相似度": round(top_score, 4),
+                "最高分相对比例（当前/max）": round(top_score / max_global_score, 4) if max_global_score != 0 else 0,
+                "是否调用LLM": "是"
+            }
     def process_single_header_with_index(index, h_text):
         result = process_single_header(h_text)
         return index, result
@@ -232,13 +255,15 @@ def calculate_similarities_bm25() -> List[Dict]:
                     idx, result = future.result()
                     results[idx] = result
                 except Exception as e:
-                    print(f"⚠️ 表头处理失败（index={idx}）: {e}")
+                    future_idx = futures[future]
+                    print(f"⚠️ 表头处理失败（index={future_idx}）: {e}")
                 finally:
                     pbar.update(1)
 
     return results
 
 def save_results(results: List[Dict]):
+    results = [r for r in results if r is not None]
     df = pd.DataFrame(results)
     print("保存前的列名：", df.columns.tolist())
 

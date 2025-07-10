@@ -5,7 +5,11 @@ import argparse
 import pandas as pd
 import numpy as np
 import jieba
-#from openai import OpenAI
+import tqdm
+import aiohttp
+import asyncio
+import json
+from openai import OpenAI
 from typing import List, Dict
 #进行数据集处理
 from data_description.invoke_data_manipulaltion_basyxx import extract_name_columns_from_excel
@@ -16,15 +20,14 @@ from Build_an_index.invoke_Non_standard_data_Build_index import vectorize_header
 #计算向量相似度
 from sklearn.metrics.pairwise import cosine_similarity
 from rank_bm25 import BM25Okapi
-from chatglm3 import generate_with_chatglm3 as generate_with_llm
-
+from tqdm import tqdm
 
 # 初始化OpenAI客户端
-# client = OpenAI(
-#     base_url="http://172.16.55.171:7010/v1",
-#     #base_url="http://10.0.1.194:7010/v1",
-#     api_key="sk-cairi"
-# )
+client = OpenAI(
+    base_url="http://172.16.55.171:7010/v1",
+    #base_url="http://10.0.1.194:7010/v1",
+    api_key="sk-cairi"
+)
 
 # 配置参数
 CONFIG = {
@@ -106,42 +109,36 @@ def process_standard_data() -> List[str]:
     return terms
 
 
-# def generate_with_llm(prompt: str) -> str:
-#     try:
-#         response = client.chat.completions.create(
-#             model=CONFIG["llm_model"],
-#             messages=[{"role": "user", "content": prompt}],
-#             temperature=0,
-#             presence_penalty=1.5,
-#             extra_body={
-#                 "min_p": 0,
-#             },
-#
-#         )
-#
-#         message_obj = response.choices[0].message
-#
-#         # 提取 LLM 返回内容（兼容 CAIRI 的 reasoning_content 字段）
-#         raw_content = None
-#         if hasattr(message_obj, "content") and message_obj.content:
-#             raw_content = message_obj.content.strip()
-#         elif hasattr(message_obj, "reasoning_content") and message_obj.reasoning_content:
-#             raw_content = message_obj.reasoning_content.strip()
-#         else:
-#             raw_content = ""
-#
-#         # 提取编号 1~4
-#         match = re.search(r'\b([1-4])\b', raw_content)
-#         if match:
-#             llm_choice = match.group(1)
-#         else:
-#             llm_choice = ""
-#
-#         return llm_choice
-#
-#     except Exception as e:
-#         print(f"⚠️ LLM调用失败：{e}")
-#         return ""
+async def async_generate_with_llm(prompt: str, session: aiohttp.ClientSession) -> str:
+    url = "http://172.16.55.171:7010/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer sk-cairi",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": CONFIG["llm_model"],
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0,
+        "presence_penalty": 1.5,
+        "extra_body": {"min_p": 0}
+    }
+
+    try:
+        async with session.post(url, headers=headers, json=payload, timeout=60) as resp:
+            if resp.status != 200:
+                print(f"⚠️ 请求失败，状态码：{resp.status}")
+                return ""
+
+            response_json = await resp.json()
+            content = response_json.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+
+            # 提取编号 1~3
+            match = re.search(r'\b([1-3])\b', content)
+            return match.group(1) if match else ""
+
+    except Exception as e:
+        print(f"⚠️ 异步调用出错：{e}")
+        return ""
 
 def detect_similarity_method(func):
     def wrapper(*args, **kwargs):
@@ -160,62 +157,105 @@ def detect_similarity_method(func):
 # =========================
 threshold_ratio = 0.85
 #bm25
-@detect_similarity_method
-def calculate_similarities_bm25() -> List[Dict]:
-    header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
-    standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].dropna().astype(str).tolist()
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    tokenized_corpus = [list(jieba.cut(text)) for text in standard_texts]
-    bm25 = BM25Okapi(tokenized_corpus)
+async def async_process_single_header(h_text: str, session: aiohttp.ClientSession) -> Dict:
+    query = list(jieba.cut(h_text))
+    scores = bm25.get_scores(query)
+    max_global_score = max(scores)
 
-    results = []
+    top_3_indices = np.argsort(scores)[-3:][::-1]
+    top_3 = [standard_texts[i] for i in top_3_indices]
+    top_scores = [scores[i] for i in top_3_indices]
 
-    for h_text in header_texts:
-        query = list(jieba.cut(h_text))
-        scores = bm25.get_scores(query)
-        top_3_indices = np.argsort(scores)[-3:][::-1]
-        top_3 = [standard_texts[i] for i in top_3_indices]
-        top_scores = [scores[i] for i in top_3_indices]
+    top_score = top_scores[0]
 
-        # 判断是否低于阈值
-        if top_scores[0] < max(scores) * threshold_ratio:
-            llm_choice_result = ""  # 不调用LLM，直接空字符串
-        else:
-            prompt = f"""
-你是一个专业的医疗数据助手。请根据给定的原始字段，选择最符合含义的标准术语候选项。
-
-请注意：
-- 候选术语中仅有一个最合适的；
-- 如果都不合适，请返回空值（不要选择）；
-- 只需返回对应的编号 1、2、3 或空字符串 ""，不要输出解释。
-
-原始字段（query）：{h_text}
+    if top_score < max_global_score * threshold_ratio:
+        return {
+            "原始表头": h_text,
+            "候选术语": top_3,
+            "LLM选择": "",
+            "最高相似度": round(top_score, 4),
+            "最高分相对比例（当前/max）": round(top_score / max_global_score, 4) if max_global_score != 0 else 0,
+            "是否调用LLM": "否"
+        }
+    else:
+        prompt = f"""请根据病历表头选择最匹配的标准术语：
+原始表头：{h_text}
 候选术语：
-{chr(10).join(f"{i+1}. {text}" for i, text in enumerate(top_3))}
-"""
+{chr(10).join(f'{i + 1}. {text}' for i, text in enumerate(top_3))}
 
-            llm_choice = generate_with_llm(prompt)
-            if llm_choice.isdigit() and 1 <= int(llm_choice) <= 3:
-                llm_choice_result = top_3[int(llm_choice) - 1]
-            else:
-                llm_choice_result = ""
-
-        results.append({
+只需返回选择的编号(1-3)，不要解释。"""
+        llm_choice = await async_generate_with_llm(prompt, session)
+        llm_choice_result = top_3[int(llm_choice) - 1] if llm_choice.isdigit() and 1 <= int(llm_choice) <= 3 else ""
+        return {
             "原始表头": h_text,
             "候选术语": top_3,
             "LLM选择": llm_choice_result,
-            "最高相似度": top_scores[0],
-            "平均相似度": np.mean(top_scores),
-            "是否调用LLM": "是" if top_scores[0] >= max(scores) * threshold_ratio else "否"
-        })
+            "最高相似度": round(top_score, 4),
+            "最高分相对比例（当前/max）": round(top_score / max_global_score, 4) if max_global_score != 0 else 0,
+            "是否调用LLM": "是"
+        }
+
+
+@detect_similarity_method
+def calculate_similarities_bm25() -> List[Dict]:
+    global bm25, standard_texts
+    header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
+    standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].dropna().astype(str).tolist()
+    tokenized_corpus = [list(jieba.cut(text)) for text in standard_texts]
+    bm25 = BM25Okapi(tokenized_corpus)
+
+    async def batch_process():
+        results = [None] * len(header_texts)
+        sem = asyncio.Semaphore(10)  # 控制最大并发量
+
+        async with aiohttp.ClientSession() as session:
+            async def limited_process(i, h_text):
+                async with sem:
+                    result = await async_process_single_header(h_text, session)
+                    results[i] = result
+
+            tasks = [limited_process(i, h_text) for i, h_text in enumerate(header_texts)]
+            for f in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="⚡ Async LLM中"):
+                await f
+
+        return results
+
+    return asyncio.run(batch_process())
+
+    # 多线程执行（线程池）
+    # 多线程执行（线程池），保证结果顺序一致
+
+
+    def process_single_header_with_index(index, h_text):
+        result = process_single_header(h_text)
+        return index, result
+
+    # 按原始顺序初始化空列表
+    results = [None] * len(header_texts)
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        futures = {
+            executor.submit(process_single_header_with_index, idx, h_text): idx
+            for idx, h_text in enumerate(header_texts)
+        }
+
+        with tqdm(total=len(header_texts), desc="🧠 LLM匹配中", ncols=80) as pbar:
+            for future in as_completed(futures):
+                try:
+                    idx, result = future.result()
+                    results[idx] = result
+                except Exception as e:
+                    print(f"⚠️ 表头处理失败（index={idx}）: {e}")
+                finally:
+                    pbar.update(1)
 
     return results
 
-
-
-
 def save_results(results: List[Dict]):
     df = pd.DataFrame(results)
+    print("保存前的列名：", df.columns.tolist())
 
     # 删除不需要的列
     df.drop(columns=[col for col in ["平均相似度", "匹配成功"] if col in df.columns], inplace=True)
