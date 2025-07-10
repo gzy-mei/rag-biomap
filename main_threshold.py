@@ -158,6 +158,8 @@ prompt_template = r"""
 
 """
 
+import re  # 确保顶部已导入 re
+
 def generate_with_llm(prompt: str) -> str:
     try:
         response = client.chat.completions.create(
@@ -176,13 +178,21 @@ def generate_with_llm(prompt: str) -> str:
         else:
             raw_content = ""
 
+        # ✅ 清理 LLM 输出中的 markdown JSON 包裹
+        if raw_content.startswith("```json"):
+            raw_content = re.sub(r"^```json", "", raw_content).strip()
+            raw_content = re.sub(r"```$", "", raw_content).strip()
+        elif raw_content.startswith("```"):
+            raw_content = re.sub(r"^```", "", raw_content).strip()
+            raw_content = re.sub(r"```$", "", raw_content).strip()
+
         # 解析 JSON 返回
         try:
             parsed = json.loads(raw_content)
             matched = parsed.get("matched_field_name", "")
             if matched == "N/A":
                 return ""
-            return matched  # 返回字段名
+            return matched
         except Exception as e:
             print(f"⚠️ JSON解析失败：{e}，原始返回：{raw_content}")
             return "调用失败"
@@ -190,7 +200,8 @@ def generate_with_llm(prompt: str) -> str:
     except Exception as e:
         print(f"⚠️ LLM调用失败：{e}")
         return "调用失败"
-threshold_ratio = 0.85
+
+threshold_ratio = 0.30
 @detect_similarity_method
 def calculate_similarities_bm25() -> List[Dict]:
     header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
@@ -320,7 +331,7 @@ def save_results(results: List[Dict]):
     stats_df = pd.DataFrame(stats_data)
 
     # 将统计信息写入Excel的第12-15列（L-O列）
-    with pd.ExcelWriter(os.path.join(CONFIG["output_dir"], "阈值设置85%.xlsx"), engine="openpyxl") as writer:
+    with pd.ExcelWriter(os.path.join(CONFIG["output_dir"], "阈值设置30%.xlsx"), engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name="匹配结果", index=False)
         stats_df.to_excel(writer, sheet_name="匹配结果", startcol=11, startrow=1, index=False, header=False)
 
