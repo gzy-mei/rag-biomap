@@ -269,7 +269,7 @@ def calculate_similarities_bm25() -> List[Dict]:
     def process_single_header(h_text: str) -> Dict:
         query = list(jieba.cut(h_text))
         scores = bm25.get_scores(query)
-        max_global_score = 19.2302  #max(scores) ✅ 全局最大值手动设置
+        max_global_score = max(scores)
         top_3_indices = np.argsort(scores)[-3:][::-1]
         top_3 = [standard_texts[i] for i in top_3_indices]
         top_scores = [scores[i] for i in top_3_indices]

@@ -112,34 +112,73 @@ def detect_similarity_method(func):
         return func(*args, **kwargs)
     return wrapper
 
+# prompt_template = r"""
+# 你是一个专业的医疗领域数据对齐助手，擅长将非标准化的医疗字段名称映射到标准化的定义。
+# 你的任务是接收一个"原始表头“ （h_text）和一个"候选术语"列表（ top_3），然后从（ top_3）中找到与"原始表头“ （h_text）最匹配的字段名。
+# 请注意以下匹配规则：
+# 1. **完全匹配优先**：如果h_text与top_3中的某个字段名完全相同，则认为这是最完美的匹配。
+# 2. **忽略限定词或编号**：h_text中可能包含额外的限定词、页面层级信息或编号。在匹配时，请注意这些因为页面层级关系而带入的限定词和编号可以忽略，但是对于核心的一些限定词需要严格区分。例如，“出院其他诊断入院病情3”这个h_text中最前面的“出院”明显是这个页面层级叫“出院”，但是其中的“入院”是跟“病情”合在一起的，不能忽略，最后面的3可以理解为是页面中一个列表的编号，也可以忽略，所以它最终匹配到“其他诊断入院病情”。
+# 3. **模糊匹配**：如果不存在完全匹配，请进行语义上的模糊匹配，寻找最接近的含义。
+# 4. **无匹配处理**：如果你认为top_3中没有与h_text相匹配的字段，则对应的匹配字段设为N/A，分数设为0.0
+# 5. **置信度分数**：分数范围为(0, 1.0]，1.0表示完美匹配。
+# 请严格以JSON格式返回结果，包含 matched_field_name 和 score 两个字段。不要包含'''json和任何额外的解释、说明或报错信息。
+#
+# ---
+#
+# **输入示例**
+# **h_text:** "出院其他诊断入院病情3"
+# **top_3:** ["入院诊断",  "其他诊断入院病情", "入院病情"]
+# **输出示例**
+# {
+#   "matched_field_name": "其他诊断入院病情",
+#   "score": 0.95
+# }
+#
+# **输入示例**
+# **h_text:** "出院其他诊断出院情况4"
+# **top_3:** ["入院诊断", "主要诊断", "其他诊断"]
+# **输出示例**
+# {
+#   "matched_field_name": "N/A",
+#   "score": 0.0
+# }
+#
+# ---
+#
+# ## 任务 (Task)
+#
+# 请严格只返回如下 JSON 格式，不要包含任何其他内容：
+# {"matched_field_name": "...", "score": ...}
+#
+# * **输入:**
+# **h_text:**: {{h_text}}
+# **top_3:**: {{top_3}}
+#
+# * **返回:**请严格返回一段JSON 格式，如下所示（不加任何解释）：
+# {"matched_field_name": "...", "score": ...}
+# 禁止返回多个JSON，不允许带说明、注释、文字。
+#
+# """
 prompt_template = r"""
-你是一个专业的医疗数据对齐助手，擅长将非标准化的医疗字段名称映射为标准字段。
-你会接收到一个“原始表头”（h_text）和一个“候选字段列表”（top_3），请从 top_3 中找出最符合 h_text 含义的字段。
+你是医疗数据标准化助手。请从下列候选术语中，选择与给定原始表头最匹配的一个。
 
-请严格按照以下匹配规则判断：
-1. **完全匹配优先**：若 h_text 与 top_3 中某个字段完全一致，优先返回此项，score 为 1.0。
-2. **忽略无效限定词或编号**：h_text中可能包含额外的限定词、页面层级信息或编号。在匹配时，请注意这些因为页面层级关系而带入的限定词和编号可以忽略，但是对于核心的一些限定词需要严格区分。例如，“出院其他诊断入院病情3”这个h_text中最前面的“出院”明显是这个页面层级叫“出院”，但是其中的“入院”是跟“病情”合在一起的，不能忽略，最后面的3可以理解为是页面中一个列表的编号，也可以忽略，所以它最终匹配到“其他诊断入院病情”。
-3. **模糊语义匹配**：若无完全匹配，请基于语义相似度选择最接近含义的字段。
-4. **无匹配时返回空值**：若 top_3 中无任何字段与 h_text 匹配，请返回 {"matched_field_name": "N/A", "score": 0.0}
-5. **只返回一个字段**，置信度分数范围为 (0, 1.0]，保留1位小数。
+匹配规则：
+1. 完全一致优先；
+2. 忽略无意义词（如“出院”、“编号”、“3”等），但保留如“入院”“病情”；
+3. 若无合适匹配，返回 N/A 和 0.0 分；
+4. 分数为 (0, 1.0]，匹配越接近，分数越高；
 
----
-
-📌【严格格式要求】
-你必须严格仅返回**如下格式的一行 JSON**，不得包含任何解释、注释、换行或多余空格：
-
+⚠️【输出要求】
+严格仅输出如下格式，不能有解释、代码块、换行或其它内容：
 {"matched_field_name": "xxx", "score": x.x}
 
-⚠️ 禁止输出多个 JSON、文字说明、注释、提示、换行符或 Markdown 代码块标识。
-
 ---
 
-输入：
-h_text: {{h_text}}
-top_3: {{top_3}}
-
-现在请仅输出一行 JSON 格式的结果：
+原始表头: {{h_text}}
+候选术语: {{top_3}}
+请输出：
 """
+
 
 def generate_with_llm(prompt: str) -> str:
     try:
@@ -150,6 +189,7 @@ def generate_with_llm(prompt: str) -> str:
             presence_penalty=1.5,
             extra_body={"min_p": 0},
         )
+
         message_obj = response.choices[0].message
         raw_content = None
         if hasattr(message_obj, "content") and message_obj.content:
@@ -159,44 +199,65 @@ def generate_with_llm(prompt: str) -> str:
         else:
             raw_content = ""
 
-            # ✅ 清理 LLM 输出中的 markdown JSON 包裹
-            if raw_content.startswith("```json"):
-                raw_content = re.sub(r"^```json", "", raw_content).strip()
-                raw_content = re.sub(r"```$", "", raw_content).strip()
-            elif raw_content.startswith("```"):
-                raw_content = re.sub(r"^```", "", raw_content).strip()
-                raw_content = re.sub(r"```$", "", raw_content).strip()
+        # ✅ 基础清洗：去除 markdown JSON 包裹
+        if raw_content.startswith("```json"):
+            raw_content = re.sub(r"^```json", "", raw_content).strip()
+            raw_content = re.sub(r"```$", "", raw_content).strip()
+        elif raw_content.startswith("```"):
+            raw_content = re.sub(r"^```", "", raw_content).strip()
+            raw_content = re.sub(r"```$", "", raw_content).strip()
 
+        # ✅ 扩展清洗：中文符号 + 拼写修复 + 冗余字段
+        raw_content = raw_content.replace("“", "\"").replace("”", "\"")
+        raw_content = raw_content.replace("，", ",").replace("：", ":")
+        raw_content = raw_content.replace("matchee", "matched_field_name")
+        if '"matched_field_' in raw_content:
+            raw_content = raw_content.replace('"matched_field_"', '"matched_field_name"')
+        raw_content = raw_content.rstrip("。")
+
+        # ✅ 自动补全缺失的大括号
+        if raw_content.count("{") > raw_content.count("}"):
+            raw_content += "}"
+        elif raw_content.count("{") < raw_content.count("}"):
+            raw_content = raw_content[:raw_content.rfind("}")+1]
+
+        # ✅ 正则提取 JSON 主体
+        # ✅ 更严格的正则提取 JSON 主体，确保只提取一段
         try:
-            # 提取 JSON 内容
-            json_match = re.search(r"{.*?}", raw_content, re.DOTALL)
-            if json_match:
-                raw_content = json_match.group(0)
-            else:
-                print("⚠️ 未能从 LLM 输出中提取到 JSON 字符串")
+            json_match = re.findall(r"\{.*?\}", raw_content.strip(), re.DOTALL)
+            if len(json_match) != 1:
+                print(f"⚠️ 返回了 {len(json_match)} 段 JSON，无法判断使用哪段")
+                print(f"Prompt：{prompt}")
+                print(f"原始返回内容：{raw_content}")
                 return "调用失败"
+
+            parsed = json.loads(json_match[0])
+            matched = parsed.get("matched_field_name", "")
+            if matched == "N/A":
+                return ""
+            return matched
 
             parsed = json.loads(raw_content)
             matched = parsed.get("matched_field_name", "")
             if matched == "N/A":
                 return ""
             return matched
+
         except Exception as e:
 
-            # 出错暂停！--调试
-            import pdb
-            pdb.set_trace()
-            # 出错暂停！--调试
 
-            print(f"⚠️ JSON解析失败：{e}，原始返回：{raw_content}")
+            print("⚠️ JSON解析失败！")
+            print(f"Prompt：{prompt}")
+            print(f"返回原文：{raw_content}")
+            print(f"异常信息：{e}")
             return "调用失败"
-
 
     except Exception as e:
         print(f"⚠️ LLM调用失败：{e}")
         return "调用失败"
 
-threshold_ratio = 0.30
+
+threshold_ratio = 0.20
 @detect_similarity_method
 def calculate_similarities_bm25() -> List[Dict]:
     header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
@@ -208,13 +269,13 @@ def calculate_similarities_bm25() -> List[Dict]:
     def process_single_header(h_text: str) -> Dict:
         query = list(jieba.cut(h_text))
         scores = bm25.get_scores(query)
-        max_global_score = 19.2302  #max(scores) ✅ 全局最大值手动设置
+        max_global_score = max(scores)
         top_3_indices = np.argsort(scores)[-3:][::-1]
         top_3 = [standard_texts[i] for i in top_3_indices]
         top_scores = [scores[i] for i in top_3_indices]
         top_score = top_scores[0]
 
-        if top_score < max_global_score * threshold_ratio:    #数量/分数-中位数！！-平均数
+        if top_score < max_global_score * threshold_ratio:
             return {
                 "原始表头": h_text,
                 "候选术语": top_3,
@@ -326,17 +387,19 @@ def save_results(results: List[Dict]):
     stats_df = pd.DataFrame(stats_data)
 
     # 将统计信息写入Excel的第12-15列（L-O列）
-    with pd.ExcelWriter(os.path.join(CONFIG["output_dir"], "阈值设置30%.xlsx"), engine="openpyxl") as writer:
+    with pd.ExcelWriter(os.path.join(CONFIG["output_dir"], "阈值设置20%.xlsx"), engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name="匹配结果", index=False)
         stats_df.to_excel(writer, sheet_name="匹配结果", startcol=11, startrow=1, index=False, header=False)
 
     # 控制台输出（辅助确认）
-    print(f"✅ 结果已保存到 {os.path.join(CONFIG['output_dir'], '阈值设置30%.xlsx')}")
+    print(f"✅ 结果已保存到 {os.path.join(CONFIG['output_dir'], '阈值设置20%.xlsx')}")
     print(f"📊 匹配准确率：{total_accuracy:.6f}")
     print(f"📊 GT为空值：{gt_empty_count}，llm选择为空数量：{llm_empty_total}")
     print(f"📊 llm选择为空 && GT为空（匹配）：{llm_empty_and_gt_empty}")
     print(f"📊 llm选择非空 && GT为空：{llm_not_empty_gt_empty}")
     print(f"📊 llm选择为空 && GT非空：{llm_empty_gt_not_empty}")
+    llm_failed_count = sum(df["LLM选择"] == "调用失败")
+    print(f"❗ LLM调用失败数量：{llm_failed_count}")
 
 
 
