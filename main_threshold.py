@@ -148,7 +148,8 @@ prompt_template = r"""
 
 ## 任务 (Task)
 
-现在，请根据以上规则和示例，处理以下输入：
+请严格只返回如下 JSON 格式，不要包含任何其他内容：
+{"matched_field_name": "...", "score": ...}
 
 * **输入:**
 **h_text:**: {{h_text}}
@@ -158,7 +159,6 @@ prompt_template = r"""
 
 """
 
-import re  # 确保顶部已导入 re
 
 def generate_with_llm(prompt: str) -> str:
     try:
@@ -186,8 +186,26 @@ def generate_with_llm(prompt: str) -> str:
             raw_content = re.sub(r"^```", "", raw_content).strip()
             raw_content = re.sub(r"```$", "", raw_content).strip()
 
-        # 解析 JSON 返回
+        # # 解析 JSON 返回
+        # try:
+        #     parsed = json.loads(raw_content)
+        #     matched = parsed.get("matched_field_name", "")
+        #     if matched == "N/A":
+        #         return ""
+        #     return matched
+        # except Exception as e:
+        #     print(f"⚠️ JSON解析失败：{e}，原始返回：{raw_content}")
+        #     return "调用失败"
+
         try:
+            # 提取 JSON 内容
+            json_match = re.search(r"{.*?}", raw_content, re.DOTALL)
+            if json_match:
+                raw_content = json_match.group(0)
+            else:
+                print("⚠️ 未能从 LLM 输出中提取到 JSON 字符串")
+                return "调用失败"
+
             parsed = json.loads(raw_content)
             matched = parsed.get("matched_field_name", "")
             if matched == "N/A":
@@ -196,6 +214,7 @@ def generate_with_llm(prompt: str) -> str:
         except Exception as e:
             print(f"⚠️ JSON解析失败：{e}，原始返回：{raw_content}")
             return "调用失败"
+
 
     except Exception as e:
         print(f"⚠️ LLM调用失败：{e}")
@@ -336,7 +355,7 @@ def save_results(results: List[Dict]):
         stats_df.to_excel(writer, sheet_name="匹配结果", startcol=11, startrow=1, index=False, header=False)
 
     # 控制台输出（辅助确认）
-    print(f"✅ 结果已保存到 {os.path.join(CONFIG['output_dir'], '阈值设置85%.xlsx')}")
+    print(f"✅ 结果已保存到 {os.path.join(CONFIG['output_dir'], '阈值设置30%.xlsx')}")
     print(f"📊 匹配准确率：{total_accuracy:.6f}")
     print(f"📊 GT为空值：{gt_empty_count}，llm选择为空数量：{llm_empty_total}")
     print(f"📊 llm选择为空 && GT为空（匹配）：{llm_empty_and_gt_empty}")
