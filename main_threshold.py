@@ -175,12 +175,15 @@ def calculate_similarities_bm25() -> List[Dict]:
     def process_single_header(h_text: str) -> Dict:
         query = list(jieba.cut(h_text))
         scores = bm25.get_scores(query)
+        max_global_score = max(scores)  # ✅ 全局最高相似度
+
         top_3_indices = np.argsort(scores)[-3:][::-1]
         top_3 = [standard_texts[i] for i in top_3_indices]
         top_scores = [scores[i] for i in top_3_indices]
-        true_max_score = max(scores)
 
-        if true_max_score == 0 or top_scores[0] < true_max_score * threshold_ratio:
+        top_score = top_scores[0]  # top3中得分最高者
+
+        if top_score < max_global_score * threshold_ratio:
             llm_choice_result = ""
             called_llm = "否"
         else:
@@ -201,8 +204,8 @@ def calculate_similarities_bm25() -> List[Dict]:
             "原始表头": h_text,
             "候选术语": top_3,
             "LLM选择": llm_choice_result,
-            "最高相似度": round(top_scores[0], 4),
-            "最高分相对比例（当前/max）": round(top_scores[0] / max(scores), 4) if max(scores) != 0 else 0,
+            "最高相似度": round(top_score, 4),
+            "最高分相对比例（当前/max）": round(top_score / max_global_score, 4) if max_global_score != 0 else 0,
             "是否调用LLM": called_llm
         }
 
@@ -217,7 +220,7 @@ def calculate_similarities_bm25() -> List[Dict]:
     # 按原始顺序初始化空列表
     results = [None] * len(header_texts)
 
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    with ThreadPoolExecutor(max_workers=20) as executor:
         futures = {
             executor.submit(process_single_header_with_index, idx, h_text): idx
             for idx, h_text in enumerate(header_texts)
