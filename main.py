@@ -10,7 +10,7 @@ import json
 from openai import OpenAI
 from typing import List, Dict
 #进行数据集处理
-from data_description.invoke_data_manipulaltion_basyxx import extract_name_columns_from_excel
+from data_description.invoke_data_manipulaltion import extract_name_columns_from_multiple_sheets
 from data_description.invoke_Non_standard_data import extract_first_row_to_csv
 #进行向量化
 from Build_an_index.invoke_Build_index import get_embedding, build_index_from_csv
@@ -69,28 +69,27 @@ def process_non_standard_data() -> List[str]:
 #处理标准术语数据（知识库）
 def process_standard_data() -> List[str]:
     """
-    处理标准术语数据：提取术语列 → 保存CSV → 向量化 → 返回术语列表
+    处理标准术语数据：提取多个 sheet 的“名称”列 → 保存CSV → 向量化 → 返回术语列表
     """
-    # 直接提取标准术语sheet名称、原列名、内容
-    # from data_description.invoke_data_manipulaltion_basyxx import extract_name_columns_from_excel
-    #结果生成：data_description/test/标准术语_病案首页.csv
-    success = extract_name_columns_from_excel(
+    # ✅ 提取多个 sheet 的“名称”列
+    target_sheets = ["患者基线信息", "病案首页信息"]
+    success = extract_name_columns_from_multiple_sheets(
         CONFIG["standard_excel"],
         CONFIG["standard_terms_csv"],
-        target_sheet="病案首页信息",
+        target_sheets=target_sheets,
         target_column="名称"
     )
     if not success:
         raise RuntimeError("标准术语提取失败")
-    # 加载CSV并提取术语（即“内容”列-不会包含“内容”这两个字。）
+
+    # ✅ 加载CSV并提取术语（即“内容”列）
     df = pd.read_csv(CONFIG["standard_terms_csv"])
     if "内容" not in df.columns:
         raise ValueError("标准术语CSV缺少 '内容' 列")
     terms = df["内容"].dropna().astype(str).tolist()
     print(f"✅ 成功加载标准术语，共 {len(terms)} 条")
-    # 向量化“内容”列
-    #结果生成：Build_an_index/test/standard_terms.npy
-    #from Build_an_index.invoke_Build_index import get_embedding, build_index_from_csv
+
+    # ✅ 向量化“内容”列
     build_index_from_csv(
         CONFIG["standard_terms_csv"],     # 直接使用原CSV
         CONFIG["standard_vectors"],       # 保存向量路径
@@ -257,7 +256,7 @@ def generate_with_llm(prompt: str) -> str:
         return "调用失败"
 
 
-threshold_ratio = 0.20
+threshold_ratio = 0.34
 @detect_similarity_method
 def calculate_similarities_bm25() -> List[Dict]:
     header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
@@ -269,7 +268,7 @@ def calculate_similarities_bm25() -> List[Dict]:
     def process_single_header(h_text: str) -> Dict:
         query = list(jieba.cut(h_text))
         scores = bm25.get_scores(query)
-        max_global_score = max(scores)
+        max_global_score = 20.3006  # max(scores)
         top_3_indices = np.argsort(scores)[-3:][::-1]
         top_3 = [standard_texts[i] for i in top_3_indices]
         top_scores = [scores[i] for i in top_3_indices]
@@ -387,12 +386,12 @@ def save_results(results: List[Dict]):
     stats_df = pd.DataFrame(stats_data)
 
     # 将统计信息写入Excel的第12-15列（L-O列）
-    with pd.ExcelWriter(os.path.join(CONFIG["output_dir"], "阈值设置20%.xlsx"), engine="openpyxl") as writer:
+    with pd.ExcelWriter(os.path.join(CONFIG["output_dir"], "阈值设置34%.xlsx"), engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name="匹配结果", index=False)
         stats_df.to_excel(writer, sheet_name="匹配结果", startcol=11, startrow=1, index=False, header=False)
 
     # 控制台输出（辅助确认）
-    print(f"✅ 结果已保存到 {os.path.join(CONFIG['output_dir'], '阈值设置20%.xlsx')}")
+    print(f"✅ 结果已保存到 {os.path.join(CONFIG['output_dir'], '阈值设置34%.xlsx')}")
     print(f"📊 匹配准确率：{total_accuracy:.6f}")
     print(f"📊 GT为空值：{gt_empty_count}，llm选择为空数量：{llm_empty_total}")
     print(f"📊 llm选择为空 && GT为空（匹配）：{llm_empty_and_gt_empty}")

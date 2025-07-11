@@ -256,25 +256,34 @@ def generate_with_llm(prompt: str) -> str:
         return "调用失败"
 
 
-threshold_ratio = 0.35
+# threshold_ratio = 0.34
 @detect_similarity_method
 def calculate_similarities_bm25() -> List[Dict]:
     header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
     standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].dropna().astype(str).tolist()
     tokenized_corpus = [list(jieba.cut(text)) for text in standard_texts]
     bm25 = BM25Okapi(tokenized_corpus)
+
     results = []
+    global_scores = []  # ✅ 记录所有表头的最大BM25得分
 
     def process_single_header(h_text: str) -> Dict:
         query = list(jieba.cut(h_text))
-        scores = bm25.get_scores(query)
-        max_global_score = 20.3006  # max(scores)
+        scores = bm25.get_scores(query)   # 当前表头计算的向量相似度数组
+
+        max_score = max(scores)  # ✅ 当前这个表头的最高得分
+        global_scores.append(max_score)  # ✅ 存入列表
+
         top_3_indices = np.argsort(scores)[-3:][::-1]
         top_3 = [standard_texts[i] for i in top_3_indices]
         top_scores = [scores[i] for i in top_3_indices]
         top_score = top_scores[0]
 
-        if top_score < max_global_score * threshold_ratio:
+        max_global_score = max(global_scores)   # 所有表头计算的其最高向量相似度数组
+        median_global_score = np.median(global_scores)
+
+
+        if top_score < median_global_score:
             return {
                 "原始表头": h_text,
                 "候选术语": top_3,
@@ -386,12 +395,12 @@ def save_results(results: List[Dict]):
     stats_df = pd.DataFrame(stats_data)
 
     # 将统计信息写入Excel的第12-15列（L-O列）
-    with pd.ExcelWriter(os.path.join(CONFIG["output_dir"], "阈值设置35%.xlsx"), engine="openpyxl") as writer:
+    with pd.ExcelWriter(os.path.join(CONFIG["output_dir"], "中位数.xlsx"), engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name="匹配结果", index=False)
         stats_df.to_excel(writer, sheet_name="匹配结果", startcol=11, startrow=1, index=False, header=False)
 
     # 控制台输出（辅助确认）
-    print(f"✅ 结果已保存到 {os.path.join(CONFIG['output_dir'], '阈值设置35%.xlsx')}")
+    print(f"✅ 结果已保存到 {os.path.join(CONFIG['output_dir'], '中位数.xlsx')}")
     print(f"📊 匹配准确率：{total_accuracy:.6f}")
     print(f"📊 GT为空值：{gt_empty_count}，llm选择为空数量：{llm_empty_total}")
     print(f"📊 llm选择为空 && GT为空（匹配）：{llm_empty_and_gt_empty}")
