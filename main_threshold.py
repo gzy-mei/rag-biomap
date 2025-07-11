@@ -256,7 +256,7 @@ def generate_with_llm(prompt: str) -> str:
         return "调用失败"
 
 
-threshold_ratio = 0.30
+threshold_ratio = 0.50
 @detect_similarity_method
 def calculate_similarities_bm25() -> List[Dict]:
     header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
@@ -268,7 +268,7 @@ def calculate_similarities_bm25() -> List[Dict]:
     def process_single_header(h_text: str) -> Dict:
         query = list(jieba.cut(h_text))
         scores = bm25.get_scores(query)
-        max_global_score = max(scores)
+        max_global_score = 20.3006  # max(scores)
         top_3_indices = np.argsort(scores)[-3:][::-1]
         top_3 = [standard_texts[i] for i in top_3_indices]
         top_scores = [scores[i] for i in top_3_indices]
@@ -386,12 +386,12 @@ def save_results(results: List[Dict]):
     stats_df = pd.DataFrame(stats_data)
 
     # 将统计信息写入Excel的第12-15列（L-O列）
-    with pd.ExcelWriter(os.path.join(CONFIG["output_dir"], "阈值设置30%.xlsx"), engine="openpyxl") as writer:
+    with pd.ExcelWriter(os.path.join(CONFIG["output_dir"], "阈值设置50%.xlsx"), engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name="匹配结果", index=False)
         stats_df.to_excel(writer, sheet_name="匹配结果", startcol=11, startrow=1, index=False, header=False)
 
     # 控制台输出（辅助确认）
-    print(f"✅ 结果已保存到 {os.path.join(CONFIG['output_dir'], '阈值设置30%.xlsx')}")
+    print(f"✅ 结果已保存到 {os.path.join(CONFIG['output_dir'], '阈值设置50%.xlsx')}")
     print(f"📊 匹配准确率：{total_accuracy:.6f}")
     print(f"📊 GT为空值：{gt_empty_count}，llm选择为空数量：{llm_empty_total}")
     print(f"📊 llm选择为空 && GT为空（匹配）：{llm_empty_and_gt_empty}")
