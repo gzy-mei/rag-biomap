@@ -100,6 +100,12 @@ for _, row in match_df.iterrows():
     for sheet_name in sheets_to_update:
         df = all_sheets[sheet_name]
         match_idx = df[df["名称"].astype(str).map(clean_text) == gt_name].index
+
+        # 👉 添加调试信息到控制台和日志
+        print(f"GT字段 {gt_name} 在 sheet【{sheet_name}】中匹配到的 index：{match_idx}")
+        with open(log_path, "a", encoding="utf-8") as log_file:
+            log_file.write(f"🧪 GT字段 {gt_name} 在 sheet【{sheet_name}】中匹配到的 index：{match_idx.tolist()}\n")
+            
         if not match_idx.empty:
             all_sheets[sheet_name].loc[match_idx[0], "录入1"] = value1
             all_sheets[sheet_name].loc[match_idx[0], "录入2"] = value2
