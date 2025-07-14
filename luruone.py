@@ -35,27 +35,30 @@ for sheet_name in sheets_to_update:
         df.insert(name_index + 2, "录入2", "")
     all_sheets[sheet_name] = df
 
-# === 步骤6：处理每一行匹配结果并写入数据 ===
+# 标准化列名：去除首尾空格和不可见字符
+data_preview.columns = data_preview.columns.map(lambda x: str(x).strip())
+
+# 遍历匹配结果
 for _, row in match_df.iterrows():
-    raw_header = str(row["原始表头"])
-    gt_name = str(row["GT标准答案"])
+    raw_header = str(row["原始表头"]).strip()
+    gt_name = str(row["GT标准答案"]).strip()
     is_match = str(row["是否匹配GT"]).strip().lower() == "true"
 
-    # 如果列不存在，跳过
     if raw_header not in data_preview.columns:
+        print(f"⚠️ 原始表头 {raw_header} 不在非标准数据中，跳过")
         continue
 
     value1, value2 = data_preview[raw_header].tolist()
     if not is_match:
         value1 = value2 = "NA"
 
-    # 在两个 sheet 中查找目标标准术语并写入值
     for sheet_name in sheets_to_update:
         df = all_sheets[sheet_name]
-        match_idx = df[df["名称"].astype(str) == gt_name].index
+        match_idx = df[df["名称"].astype(str).str.strip() == gt_name].index
         if not match_idx.empty:
             all_sheets[sheet_name].loc[match_idx[0], "录入1"] = value1
             all_sheets[sheet_name].loc[match_idx[0], "录入2"] = value2
+
 
 # === 步骤7：写入所有 sheet 到新的 Excel 文件（包括未修改的 sheet）===
 with pd.ExcelWriter(output_path, engine="openpyxl", mode="w") as writer:
