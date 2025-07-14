@@ -213,83 +213,101 @@ def generate_with_llm(prompt: str) -> str:
 # threshold_ratio = 0.34
 @detect_similarity_method
 def calculate_similarities_bm25() -> List[Dict]:
-    header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
-    standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].dropna().astype(str).tolist()
+    def preprocess_text(text: str) -> str:
+        return re.sub(r"[（）。.、,，;；\s]", "", text.strip())
+
+    # === 加载数据并预处理 ===
+    raw_header_texts = pd.read_csv(CONFIG["header_csv"], header=None)[0].dropna().astype(str).tolist()
+    raw_standard_texts = pd.read_csv(CONFIG["standard_terms_csv"])["内容"].dropna().astype(str).tolist()
+
+    # 预处理后的文本（用于匹配和BM25建模）
+    header_texts = [preprocess_text(text) for text in raw_header_texts]
+    standard_texts = [preprocess_text(text) for text in raw_standard_texts]
+
+    # === 构建 BM25 索引 ===
     tokenized_corpus = [list(jieba.cut(text)) for text in standard_texts]
     bm25 = BM25Okapi(tokenized_corpus)
 
-    results = []
-    global_scores = []  # ✅ 记录所有表头的最大BM25得分
-
-    def process_single_header(h_text: str) -> Dict:
+    # === 预计算所有表头的得分 ===
+    header_scores_list = []
+    for h_text in header_texts:
         query = list(jieba.cut(h_text))
-        scores = bm25.get_scores(query)   # 当前表头计算的向量相似度数组
+        scores = bm25.get_scores(query)
+        header_scores_list.append(scores)
 
-        max_score = max(scores)  # ✅ 当前这个表头的最高得分
-        global_scores.append(max_score)  # ✅ 存入列表
+    # === 提取每个表头的最高得分并统一计算中位数 ===
+    max_scores = [max(scores) for scores in header_scores_list]
+    median_global_score = np.median(max_scores)
+    print(f"📏 全局中位数阈值为：{median_global_score:.4f}")
 
+    # === 单个表头处理函数 ===
+    def process_single_header(index: int, h_text_raw: str, h_text_pre: str) -> Dict:
+        scores = header_scores_list[index]
         top_3_indices = np.argsort(scores)[-3:][::-1]
-        top_3 = [standard_texts[i] for i in top_3_indices]
-        top_scores = [scores[i] for i in top_3_indices]
-        top_score = top_scores[0]
+        top_3 = [raw_standard_texts[i] for i in top_3_indices]
+        top_score = scores[top_3_indices[0]]
+        relative_score = round(top_score / max(max_scores), 4)
 
-        max_global_score = max(global_scores)   # 所有表头计算的其最高向量相似度数组
-        median_global_score = np.median(global_scores)
-
-
-        if top_score < median_global_score:
+        # ✅ 完全匹配的提前判断
+        matched_in_top3 = any(h_text_pre == standard_texts[i] for i in top_3_indices)
+        if matched_in_top3:
             return {
-                "原始表头": h_text,
+                "原始表头": h_text_raw,
                 "候选术语": top_3,
-                "LLM选择": "",  # 不调用LLM
-                "最高相似度": round(top_score, 4),
-                "最高分相对比例（当前/max）": round(top_score / max_global_score, 4) if max_global_score != 0 else 0,
+                "LLM选择": h_text_raw,
+                "最高相似度": 100.0,
+                "最高分相对比例（当前/max）": 1.0,
                 "是否调用LLM": "否"
             }
-        else:
-            prompt = prompt_template.replace("{{h_text}}", h_text).replace("{{top_3}}",
-                                                                           json.dumps(top_3, ensure_ascii=False))
-            llm_choice_result = generate_with_llm(prompt)
 
-            # 判断是否调用成功并返回值
-            if llm_choice_result == "调用失败":
-                final_choice = "调用失败"
-            else:
-                final_choice = llm_choice_result.strip()
-
+        # ✅ 分数低于中位数，不调用LLM
+        if top_score < median_global_score:
             return {
-                "原始表头": h_text,
+                "原始表头": h_text_raw,
                 "候选术语": top_3,
-                "LLM选择": final_choice,
+                "LLM选择": "",
                 "最高相似度": round(top_score, 4),
-                "最高分相对比例（当前/max）": round(top_score / max_global_score, 4) if max_global_score != 0 else 0,
-                "是否调用LLM": "是"
+                "最高分相对比例（当前/max）": relative_score,
+                "是否调用LLM": "否"
             }
-    def process_single_header_with_index(index, h_text):
-        result = process_single_header(h_text)
-        return index, result
 
-    # 按原始顺序初始化空列表
+        # ✅ 需要调用 LLM 进行判断
+        prompt = prompt_template.replace("{{h_text}}", h_text_raw).replace("{{top_3}}", json.dumps(top_3, ensure_ascii=False))
+        llm_choice_result = generate_with_llm(prompt)
+        final_choice = "" if llm_choice_result == "调用失败" else llm_choice_result.strip()
+
+        return {
+            "原始表头": h_text_raw,
+            "候选术语": top_3,
+            "LLM选择": final_choice,
+            "最高相似度": round(top_score, 4),
+            "最高分相对比例（当前/max）": relative_score,
+            "是否调用LLM": "是"
+        }
+
+    # === 多线程并发处理 ===
     results = [None] * len(header_texts)
 
     with ThreadPoolExecutor(max_workers=20) as executor:
         futures = {
-            executor.submit(process_single_header_with_index, idx, h_text): idx
-            for idx, h_text in enumerate(header_texts)
+            executor.submit(process_single_header, idx, raw_header_texts[idx], header_texts[idx]): idx
+            for idx in range(len(header_texts))
         }
 
         with tqdm(total=len(header_texts), desc="🧠 LLM匹配中", ncols=80) as pbar:
             for future in as_completed(futures):
+                idx = futures[future]
                 try:
-                    idx, result = future.result()
+                    result = future.result()
                     results[idx] = result
                 except Exception as e:
-                    future_idx = futures[future]
-                    print(f"⚠️ 表头处理失败（index={future_idx}）: {e}")
+                    print(f"⚠️ 表头处理失败（index={idx}）: {e}")
                 finally:
                     pbar.update(1)
 
     return results
+
+
 
 def save_results(results: List[Dict]):
     results = [r for r in results if r is not None]
@@ -367,12 +385,12 @@ def save_results(results: List[Dict]):
     stats_df = pd.DataFrame(stats_data)
 
     # 将统计信息写入Excel的第12-15列（L-O列）
-    with pd.ExcelWriter(os.path.join(CONFIG["output_dir"], "中位数.xlsx"), engine="openpyxl") as writer:
+    with pd.ExcelWriter(os.path.join(CONFIG["output_dir"], "中位数(3).xlsx"), engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name="匹配结果", index=False)
         stats_df.to_excel(writer, sheet_name="匹配结果", startcol=11, startrow=1, index=False, header=False)
 
     # 控制台输出（辅助确认）
-    print(f"✅ 结果已保存到 {os.path.join(CONFIG['output_dir'], '中位数.xlsx')}")
+    print(f"✅ 结果已保存到 {os.path.join(CONFIG['output_dir'], '中位数(3).xlsx')}")
     print(f"📊 匹配准确率：{total_accuracy:.6f}")
     print(f"📊 GT为空值：{gt_empty_count}，llm选择为空数量：{llm_empty_total}")
     print(f"📊 llm选择为空 && GT为空（匹配）：{llm_empty_and_gt_empty}")
