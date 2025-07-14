@@ -103,7 +103,7 @@ for _, row in match_df.iterrows():
         match_idx = df[df["名称"].astype(str).map(clean_text) == gt_name].index
 
         # 日志输出
-        print(f"GT字段 {gt_name} 在 sheet【{sheet_name}】中匹配到的 index：{match_idx}")
+        # print(f"GT字段 {gt_name} 在 sheet【{sheet_name}】中匹配到的 index：{match_idx}")
         with open(log_path, "a", encoding="utf-8") as log_file:
             log_file.write(f"🧪 GT字段 {gt_name} 在 sheet【{sheet_name}】中匹配到的 index：{match_idx.tolist()}\n")
 
@@ -120,8 +120,14 @@ for _, row in match_df.iterrows():
 
 # === 步骤7：写入所有 sheet 到新的 Excel 文件（包括未修改的 sheet）===
 with pd.ExcelWriter(output_path, engine="openpyxl", mode="w") as writer:
-    for sheet_name, df in all_sheets.items():
+    for sheet_name in all_sheets:
+        df = all_sheets[sheet_name]
+
+        # 清洗列名（以防写入错误）
+        df.columns = [clean_text(c) for c in df.columns]
+
         df.to_excel(writer, sheet_name=sheet_name, index=False)
+
 
 print(f"✅ 修改后的文件已保存到：{output_path}")
 print(f"📄 调试日志已保存到：{log_path}")
