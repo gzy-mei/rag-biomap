@@ -50,6 +50,7 @@ def clean_text(s):
     return s.strip()
 
 # 清洗所有非标准数据的列名
+non_std_df = pd.read_excel(non_standard_path, header=0)
 non_std_df.columns = [clean_text(col) for col in non_std_df.columns]
 data_preview = non_std_df.head(2)
 
@@ -62,6 +63,9 @@ for _, row in match_df.iterrows():
     raw_header = row["原始表头"]
     gt_name = row["GT标准答案"]
     is_match = str(row["是否匹配GT"]).strip().lower() == "true"
+
+    print("👉 当前非标准数据列名为：", list(data_preview.columns))
+    print("👉 当前匹配表原始表头为：", raw_header)
 
     # 显示 debug 信息，确认列名实际情况
     if raw_header not in data_preview.columns:
