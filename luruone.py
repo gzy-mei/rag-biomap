@@ -1,6 +1,7 @@
 import pandas as pd
 import os
 import shutil
+import re
 
 # === 路径配置 ===
 non_standard_path = "/home/gzy/rag-biomap/dataset/导出数据第1~1000条数据_病案首页-.xlsx"
@@ -38,14 +39,33 @@ for sheet_name in sheets_to_update:
 # 标准化列名：去除首尾空格和不可见字符
 data_preview.columns = data_preview.columns.map(lambda x: str(x).strip())
 
-# 遍历匹配结果
+# 标准化列名：去除不可见字符、全角空格等
+
+
+def clean_text(s):
+    s = str(s)
+    s = re.sub(r'\s+', '', s)  # 删除所有空白字符，包括空格、换行、制表符等
+    s = s.replace('\u3000', '')  # 删除全角空格
+    s = s.replace('\u200b', '')  # 删除零宽空格
+    return s.strip()
+
+# 清洗所有非标准数据的列名
+non_std_df.columns = [clean_text(col) for col in non_std_df.columns]
+data_preview = non_std_df.head(2)
+
+# 同样清洗匹配表的表头字段
+match_df["原始表头"] = match_df["原始表头"].map(clean_text)
+match_df["GT标准答案"] = match_df["GT标准答案"].map(clean_text)
+
+# ✅ 遍历匹配结果并写入值
 for _, row in match_df.iterrows():
-    raw_header = str(row["原始表头"]).strip()
-    gt_name = str(row["GT标准答案"]).strip()
+    raw_header = row["原始表头"]
+    gt_name = row["GT标准答案"]
     is_match = str(row["是否匹配GT"]).strip().lower() == "true"
 
+    # 显示 debug 信息，确认列名实际情况
     if raw_header not in data_preview.columns:
-        print(f"⚠️ 原始表头 {raw_header} 不在非标准数据中，跳过")
+        print(f"⚠️ 原始表头 {raw_header} 不在非标准数据列中。实际列名为: {list(data_preview.columns)}")
         continue
 
     value1, value2 = data_preview[raw_header].tolist()
@@ -54,10 +74,11 @@ for _, row in match_df.iterrows():
 
     for sheet_name in sheets_to_update:
         df = all_sheets[sheet_name]
-        match_idx = df[df["名称"].astype(str).str.strip() == gt_name].index
+        match_idx = df[df["名称"].astype(str).map(clean_text) == gt_name].index
         if not match_idx.empty:
             all_sheets[sheet_name].loc[match_idx[0], "录入1"] = value1
             all_sheets[sheet_name].loc[match_idx[0], "录入2"] = value2
+
 
 
 # === 步骤7：写入所有 sheet 到新的 Excel 文件（包括未修改的 sheet）===
