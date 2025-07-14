@@ -98,17 +98,26 @@ for _, row in match_df.iterrows():
 
     # ✅ 写入录入值到指定 sheet 中
     for sheet_name in sheets_to_update:
-        df = all_sheets[sheet_name]
+        df = all_sheets[sheet_name].copy()  # 显式复制 DataFrame
+
         match_idx = df[df["名称"].astype(str).map(clean_text) == gt_name].index
 
-        # 👉 添加调试信息到控制台和日志
+        # 日志输出
         print(f"GT字段 {gt_name} 在 sheet【{sheet_name}】中匹配到的 index：{match_idx}")
         with open(log_path, "a", encoding="utf-8") as log_file:
             log_file.write(f"🧪 GT字段 {gt_name} 在 sheet【{sheet_name}】中匹配到的 index：{match_idx.tolist()}\n")
-            
+
         if not match_idx.empty:
-            all_sheets[sheet_name].loc[match_idx[0], "录入1"] = value1
-            all_sheets[sheet_name].loc[match_idx[0], "录入2"] = value2
+            df.loc[match_idx[0], "录入1"] = value1
+            df.loc[match_idx[0], "录入2"] = value2
+
+            # ✅ 显式写回去
+            all_sheets[sheet_name] = df
+
+            # ✅ 记录写入内容
+            with open(log_path, "a", encoding="utf-8") as log_file:
+                log_file.write(f"✅ 写入 sheet【{sheet_name}】的【{gt_name}】行，录入值：{value1}, {value2}\n")
+
 # === 步骤7：写入所有 sheet 到新的 Excel 文件（包括未修改的 sheet）===
 with pd.ExcelWriter(output_path, engine="openpyxl", mode="w") as writer:
     for sheet_name, df in all_sheets.items():
