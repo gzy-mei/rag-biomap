@@ -98,25 +98,27 @@ for _, row in match_df.iterrows():
 
     # ✅ 写入录入值到指定 sheet 中
     for sheet_name in sheets_to_update:
-        df = all_sheets[sheet_name].copy()  # 显式复制 DataFrame
+        match_df_sheet = all_sheets[sheet_name]  # 直接引用原始 DataFrame，不 copy
 
-        match_idx = df[df["名称"].astype(str).map(clean_text) == gt_name].index
+        match_idx = match_df_sheet[
+            match_df_sheet["名称"].astype(str).map(clean_text) == gt_name
+            ].index
 
-        # 日志输出
-        # print(f"GT字段 {gt_name} 在 sheet【{sheet_name}】中匹配到的 index：{match_idx}")
         with open(log_path, "a", encoding="utf-8") as log_file:
             log_file.write(f"🧪 GT字段 {gt_name} 在 sheet【{sheet_name}】中匹配到的 index：{match_idx.tolist()}\n")
 
         if not match_idx.empty:
-            df.loc[match_idx[0], "录入1"] = value1
-            df.loc[match_idx[0], "录入2"] = value2
+            all_sheets[sheet_name].loc[match_idx[0], "录入1"] = value1
+            all_sheets[sheet_name].loc[match_idx[0], "录入2"] = value2
 
-            # ✅ 显式写回去
-            all_sheets[sheet_name] = df
-
-            # ✅ 记录写入内容
             with open(log_path, "a", encoding="utf-8") as log_file:
                 log_file.write(f"✅ 写入 sheet【{sheet_name}】的【{gt_name}】行，录入值：{value1}, {value2}\n")
+
+            # ✅ 只在匹配成功时打印确认
+            print(all_sheets[sheet_name].loc[match_idx[0]])
+        else:
+            with open(log_path, "a", encoding="utf-8") as log_file:
+                log_file.write(f"❌ 未在 sheet【{sheet_name}】中找到 GT字段【{gt_name}】对应行，跳过写入\n")
 
 # === 步骤7：写入所有 sheet 到新的 Excel 文件（包括未修改的 sheet）===
 with pd.ExcelWriter(output_path, engine="openpyxl", mode="w") as writer:
